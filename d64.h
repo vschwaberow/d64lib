@@ -9,28 +9,43 @@
 
 #pragma pack(push, 1)
 
-const int TRACKS = 35;
+const int TRACKS_35 = 35;
+const int TRACKS_40 = 40;
+const int BAM_XTRA = TRACKS_40 - TRACKS_35;
 const int SECTOR_SIZE = 256;
 const int DISK_NAME_SZ = 16;
 const int FILE_NAME_SZ = 16;
-const int UNUSED_SZ = 85;
+const int UNUSED3_SZ = 5;
+const int UNUSED4_SZ = 84;
 const int DIR_ENTRY_SZ = 30;
 const int DIRECTORY_TRACK = 18;
 const int DIRECTORY_SECTOR = 1;
 const int BAM_SECTOR = 0;
 const int FILES_PER_SECTOR = 8;
 
-const int D64_DISK_SZ = 174848;
+const int D64_DISK35_SZ = 174848;
+const int D64_DISK40_SZ = 196608;
 
 class d64 {
 public:
+    int TRACKS;
+
     // Constants for D64 format
-    const std::array<int, TRACKS> SECTORS_PER_TRACK = {
+    const std::array<int, 40> SECTORS_PER_TRACK = {
         21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, // Tracks 1-17
         19, 19, 19, 19, 19, 19, 19,                                         // Tracks 18-24
         18, 18, 18, 18, 18, 18,                                             // Tracks 25-30
-        17, 17, 17, 17, 17                                                  // Tracks 31-35
+        17, 17, 17, 17, 17,                                                 // Tracks 31-35
+        17, 17, 17, 17, 17                                                  // Tracks 36-40
     };
+
+    const std::array<int, 40> TRACK_OFFSETS = {
+        0x00000, 0x01500, 0x02A00, 0x03F00, 0x05400, 0x06900, 0x07E00, 0x09300, 0x0A800, 0x0BD00,
+        0x0D200, 0x0E700, 0x0FC00, 0x11100, 0x12600, 0x13B00, 0x15000, 0x16500, 0x17800, 0x18B00,
+        0x19E00, 0x1B100, 0x1C400, 0x1D700, 0x1EA00, 0x1FC00, 0x20E00, 0x22000, 0x23200, 0x24400,
+        0x25600, 0x26700, 0x27800, 0x28900, 0x29A00, 0x2AB00, 0x2BC00, 0x2CD00, 0x2DE00, 0x2EF00
+    };
+
 private:
     std::vector<uint8_t> data;
 
@@ -49,19 +64,25 @@ public:
 
     class FileType {
         public:
-            FileTypes type : 6;
+            FileTypes type : 4;
+            uint8_t unused : 1;
+            uint8_t replace : 1;
             uint8_t locked : 1;
-            uint8_t allocated : 1;
+            uint8_t closed : 1;
 
     public:
-        FileType() : allocated(0), locked(0), type(FileTypes::DEL) {}
-        FileType(bool a, bool l, FileTypes t) : allocated(a ? 1 : 0), locked(l ? 1 : 0), type(t) {}
-        FileType(FileTypes t) : allocated(1), locked(0), type(t) {}
-        FileType(uint8_t value) : allocated(value & 0x80), locked(value & 0x40), type(static_cast<FileTypes>(value & 0x3F)) {}
+        FileType() : closed(0), locked(0), replace(0), unused(0), type(FileTypes::DEL) {}
+        FileType(bool a, bool l, FileTypes t) : closed(a ? 1 : 0), locked(l ? 1 : 0), unused(0), type(t) {}
+        FileType(FileTypes t) : closed(1), locked(0), unused(0), type(t) {}
+        FileType(uint8_t value) : 
+            closed(value & 0x80), 
+            locked(value & 0x40),
+            replace(value & 0x20),
+            unused(value & 0x10),
+            type(static_cast<FileTypes>(value & 0x0F)) {}
  
-        operator uint8_t() const { return (allocated << 7) | (locked << 6) | type; }
-        operator FileTypes() const { return type; }        
-       
+        operator uint8_t() const { return (closed << 7) | (locked << 6) | (replace << 5) | (unused << 4) | type; }
+        operator FileTypes() const { return type; }               
     };
 
     struct BAM_TRACK_ENTRY {
@@ -69,19 +90,23 @@ public:
         std::array<uint8_t, 3> bytes;
     };
 
+    // This folows DOLPHIN DOS for 40 tracks
     struct BAM {
-        uint8_t dir_track;                  // $00          track of directory entry
-        uint8_t dir_sector;                 // $01          sector of next directory entry
-        uint8_t dos_version;                // $02          'A' dos version
-        uint8_t unused;                     // $03          unused should be 0
-        BAM_TRACK_ENTRY bam_track[TRACKS];  // $04 - $8F    BAM to each track
-        char disk_name[DISK_NAME_SZ];       // $90 - $9F    disk name padded with A0
-        uint8_t a0[2];                      // $A0 - $A1    contains A0
-        uint8_t disk_id[2];                 // $A2 - $A3    disk id
-        uint8_t unused2;                    // $A4          contains A0
-        char dos_type[2];                   // $A5 - $A6    '2' 'A'
-        uint8_t unused3[4];                 // $A7 - $AA    A0
-        uint8_t unused4[UNUSED_SZ];         // $AB - $FF    00
+        uint8_t dir_track;                      // $00          track of directory entry
+        uint8_t dir_sector;                     // $01          sector of next directory entry
+        uint8_t dos_version;                    // $02          'A' dos version
+        uint8_t unused;                         // $03          unused should be 0
+        BAM_TRACK_ENTRY bam_track[TRACKS_35];   // $04 - $8F    BAM to each track
+        char disk_name[DISK_NAME_SZ];           // $90 - $9F    disk name padded with A0
+        uint8_t a0[2];                          // $A0 - $A1    contains A0
+        uint8_t disk_id[2];                     // $A2 - $A3    disk id
+        uint8_t unused2;                        // $A4          contains A0
+        char dos_type[2];                       // $A5 - $A6    '2' 'A'
+        uint8_t unused3[UNUSED3_SZ];            // $A7 - $AB    00
+        union {
+            BAM_TRACK_ENTRY bam_extra[BAM_XTRA];// Tracks 36 - 40 BAM
+            uint8_t unused4[UNUSED4_SZ];        // $AC - $FF    00
+        };
     };
     typedef struct BAM* BAMPtr;
 
@@ -127,7 +152,13 @@ public:
     };
     typedef struct Directory_Sector* Directory_SectorPtr;
 
+    enum diskType {
+        thirty_five_track,
+        forty_track
+    };
+
     d64();
+    d64(diskType type);
     d64(std::string name);
 
     void formatDisk(std::string_view name);
@@ -168,12 +199,17 @@ public:
     static std::string Trim(const char filename[FILE_NAME_SZ]);
 
 private:
-    static constexpr int INTERLEAVE = 10;
-    std::array<int, TRACKS> lastSectorUsed = { -1 };
 
+    static constexpr int INTERLEAVE = 10;
+    std::array<int, TRACKS_40> lastSectorUsed = { -1 };
+
+    bool validateD64();
     void initBAM(std::string_view name);
     void initializeBAMFields(std::string_view name);
     BAMPtr bamPtr;
+    diskType disktype;
+    void init_disk();
+    bool findAndAllocateFree(int t, int& sector);
 };
 
 #pragma pack(pop)
