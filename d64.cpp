@@ -1062,7 +1062,9 @@ bool d64::findAndAllocateFree(int track, int& sector)
         auto s = (start_sector + i) % SECTORS_PER_TRACK[track - 1]; // Wrap around
         auto byte = (s / 8);
         auto bit = s % 8;
-        auto val = bamPtr->bam_track[track - 1].bytes[byte];
+        auto val = track <= TRACKS_35 ? 
+            bamPtr->bam_track[track - 1].bytes[byte] :
+            bamPtr->bam_extra[track - 1].bytes[byte];
         if (val & (1 << bit)) {
             allocateSector(track, s);
             sector = s;
