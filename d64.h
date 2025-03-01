@@ -63,26 +63,28 @@ public:
     };
 
     class FileType {
-        public:
-            FileTypes type : 4;
-            uint8_t unused : 1;
-            uint8_t replace : 1;
-            uint8_t locked : 1;
-            uint8_t closed : 1;
+    public:
+        FileTypes type : 4;
+        uint8_t unused : 1;
+        uint8_t replace : 1;
+        uint8_t locked : 1;
+        uint8_t closed : 1;
 
     public:
         FileType() : closed(0), locked(0), replace(0), unused(0), type(FileTypes::DEL) {}
         FileType(bool a, bool l, FileTypes t) : closed(a ? 1 : 0), locked(l ? 1 : 0), unused(0), type(t) {}
         FileType(FileTypes t) : closed(1), locked(0), unused(0), type(t) {}
-        FileType(uint8_t value) : 
-            closed(value & 0x80), 
+        FileType(uint8_t value) :
+            closed(value & 0x80),
             locked(value & 0x40),
             replace(value & 0x20),
             unused(value & 0x10),
-            type(static_cast<FileTypes>(value & 0x0F)) {}
- 
+            type(static_cast<FileTypes>(value & 0x0F))
+        {
+        }
+
         operator uint8_t() const { return (closed << 7) | (locked << 6) | (replace << 5) | (unused << 4) | type; }
-        operator FileTypes() const { return type; }               
+        operator FileTypes() const { return type; }
     };
 
     struct BAM_TRACK_ENTRY {
@@ -161,6 +163,11 @@ public:
     d64(diskType type);
     d64(std::string name);
 
+    inline BAM_TRACK_ENTRY* bamtrack(int t)
+    {
+        return (t < TRACKS_35) ? &bamPtr->bam_track[(t)] : &bamPtr->bam_extra[((t) - TRACKS_35)];
+    }
+
     void formatDisk(std::string_view name);
     bool rename_disk(std::string_view name) const;
     std::string diskname();
@@ -170,6 +177,7 @@ public:
     bool removeFile(std::string_view filename);
     bool renameFile(std::string_view oldfilename, std::string_view newfilename);
     bool extractFile(std::string filename);
+    bool extractRELFile(const std::string& filename);
     bool save(std::string filename);
     bool load(std::string filename);
 
@@ -213,4 +221,3 @@ private:
 };
 
 #pragma pack(pop)
- 
