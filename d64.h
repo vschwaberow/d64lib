@@ -165,7 +165,7 @@ public:
 
     inline BAM_TRACK_ENTRY* bamtrack(int t)
     {
-        return (t < TRACKS_35) ? &bamPtr->bam_track[(t)] : &bamPtr->bam_extra[((t)-TRACKS_35)];
+        return (t < TRACKS_35) ? &bamPtr->bam_track[(t)] : &bamPtr->bam_extra[((t) - TRACKS_35)];
     }
 
     void formatDisk(std::string_view name);
