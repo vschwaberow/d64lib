@@ -24,6 +24,10 @@ d64::d64()
     init_disk();
 }
 
+/// <summary>
+/// constructor with disktype
+/// </summary>
+/// <param name="type">disktype</param>
 d64::d64(diskType type)
 {
     disktype = type;
@@ -48,11 +52,12 @@ d64::d64(std::string name)
 /// Initialize 35 or 40 track
 /// </summary>
 void d64::init_disk()
-{    
+{
     TRACKS = (disktype == thirty_five_track) ? TRACKS_35 : TRACKS_40;
+
     // allocate the data
     data.resize
-        (disktype == thirty_five_track ? D64_DISK35_SZ : D64_DISK40_SZ, 1);
+    (disktype == thirty_five_track ? D64_DISK35_SZ : D64_DISK40_SZ, 1);
 
     // create a new disk
     formatDisk("NEW DISK");
@@ -61,7 +66,7 @@ void d64::init_disk()
 // NOTE: track starts at 1. returns offset int datafor track and sector
 inline int d64::calcOffset(int track, int sector) const
 {
-    if (track < 1 || track > TRACKS || sector < 0 || sector > SECTORS_PER_TRACK[track -1]) {
+    if (track < 1 || track > TRACKS || sector < 0 || sector > SECTORS_PER_TRACK[track - 1]) {
         std::cerr << "Invalid Tack and Sector TRACK:" << track << " SECTOR:" << sector << std::endl;
         return -1;
     }
@@ -83,25 +88,21 @@ void d64::initBAM(std::string_view name)
     initializeBAMFields(name);
 
     // Mark all sectors free
-    for (int t = 0; t < TRACKS_35; ++t) {
-        auto bits = SECTORS_PER_TRACK[t] % 8;
-        auto val = (1 << bits) - 1; // Set the first 'bits' bits to 1
-        bamPtr->bam_track[t].free = SECTORS_PER_TRACK[t];
+    for (int t = 0; t < TRACKS; ++t) {
+        bamtrack(t)->free = SECTORS_PER_TRACK[t];
         // There are more 16 sectors per track om all tracks
         // This allows us to use 0xFF for the next 2 bytes
-        bamPtr->bam_track[t].bytes[0] = 0xFF;
-        bamPtr->bam_track[t].bytes[1] = 0xFF;
-        bamPtr->bam_track[t].bytes[2] = val;
-    }
-    if (disktype == forty_track) {
-        for (auto t = 0; t < BAM_XTRA; t++) {
-            auto bits = SECTORS_PER_TRACK[t + TRACKS_35] % 8;
-            auto val = (1 << bits) - 1; // Set the first 'bits' bits to 1
-            bamPtr->bam_extra[t].free = SECTORS_PER_TRACK[t + TRACKS_35];
-            bamPtr->bam_extra[t].bytes[0] = 0xFF;
-            bamPtr->bam_extra[t].bytes[1] = 0xFF;
-            bamPtr->bam_extra[t].bytes[2] = val;
+
+        bamtrack(t)->bytes[0] = 0xFF;
+        bamtrack(t)->bytes[1] = 0xFF;
+        auto val = 0;
+
+        auto bits = SECTORS_PER_TRACK[t] % 8;
+        for (auto b = 0; b < bits; ++b) {
+            val |= (1 << b);
         }
+
+        bamtrack(t)->bytes[2] = val;
     }
 
     // Initialize the directory structure
@@ -268,7 +269,7 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
         std::cerr << "Disk full. Unable to add" << filename << "\n";
         return false;
     }
- 
+
     // save the start track and sector
     start_track = next_track;
     start_sector = next_sector;
@@ -312,10 +313,10 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
     // loop until we are out of directory sectors
     do {
         // get the 1st file entry the directory sector
-        
+
         // loop through 8 entrys per sector
         for (auto file_entry_index = 1; file_entry_index <= 8; ++file_entry_index) {
-            auto fileEntry = &(dirSectorPtr->fileEntry[file_entry_index -1]);
+            auto fileEntry = &(dirSectorPtr->fileEntry[file_entry_index - 1]);
 
             // if it is allocated entry skip
             if ((fileEntry->file_type.closed) != 0) {
@@ -345,17 +346,17 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
             // set the replace track and sector
             fileEntry->replace_track = fileEntry->track;
             fileEntry->replace_sector = fileEntry->sector;
-            
+
             // set the file size
             fileEntry->file_size[0] = fileData.size() & 0xFF;
             fileEntry->file_size[1] = (fileData.size() & 0xFF00) >> 8;
             return true;
         }
         // check if there is another allocated directory sector if so go to it
-        if (dir_track > 0 && dir_track < TRACKS && dirSectorPtr->sector < SECTORS_PER_TRACK[dir_track -1]) {
+        if (dir_track > 0 && dir_track < TRACKS && dirSectorPtr->sector < SECTORS_PER_TRACK[dir_track - 1]) {
             dirSectorPtr = getDirectory_SectorPtr(dirSectorPtr->track, dirSectorPtr->sector);
         }
-        else { 
+        else {
             if (!findAndAllocateFreeSector(dir_track, dir_sector)) {
                 std::cerr << "Disk full. Unable to add" << filename << "\n";
                 return false;
@@ -443,18 +444,14 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
 
     // **Step 3: Compare BAM against actual usage**
     bool errorsFound = false;
-    
+
     for (int track = 1; track <= TRACKS; ++track) {
         int correctFreeCount = 0;
 
         for (int sector = 0; sector < SECTORS_PER_TRACK[track - 1]; ++sector) {
             int byteIndex = sector / 8;
             int bitMask = (1 << (sector % 8));
-            bool isFreeInBAM = false;
-            if (track <= TRACKS_35)
-                isFreeInBAM = (bamPtr->bam_track[track - 1].bytes[byteIndex] & bitMask);
-            else
-                isFreeInBAM = (bamPtr->bam_extra[(track - TRACKS_35) -1].bytes[byteIndex] & bitMask);
+            bool isFreeInBAM = bamtrack(track - 1)->bytes[byteIndex] & bitMask;
             bool isUsedInDirectory = sectorUsage[track - 1][sector];
 
             // Error: Sector incorrectly marked as used
@@ -465,12 +462,7 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
 
                 if (fix) {
                     *logOutput << "FIXING: Freeing sector " << sector << " on Track " << track << ".\n";
-                    if (track <= TRACKS_35) {
-                        bamPtr->bam_track[track - 1].bytes[byteIndex] |= bitMask;
-                    }
-                    else {
-                        bamPtr->bam_extra[(track - TRACKS_35) - 1].bytes[byteIndex] |= bitMask;
-                    }
+                    bamtrack(track - 1)->bytes[byteIndex] |= bitMask;
                 }
             }
 
@@ -482,12 +474,7 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
 
                 if (fix) {
                     *logOutput << "FIXING: Marking sector " << sector << " on Track " << track << " as used.\n";
-                    if (track <= TRACKS_35) {
-                        bamPtr->bam_track[track - 1].bytes[byteIndex] &= ~bitMask;
-                    }
-                    else {
-                        bamPtr->bam_extra[(track - TRACKS_35) - 1].bytes[byteIndex] &= ~bitMask;
-                    }
+                    bamtrack(track - 1)->bytes[byteIndex] &= ~bitMask;
                 }
             }
 
@@ -497,21 +484,17 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
         }
 
         // Error: Incorrect free sector count
-        if (bamPtr->bam_track[track - 1].free != correctFreeCount) {
+        int free = bamtrack(track - 1)->free;
+
+        if (free != correctFreeCount) {
             *logOutput << "WARNING: BAM free sector count mismatch on Track " << track
-                << " (BAM: " << (int)bamPtr->bam_track[track - 1].free
+                << " (BAM: " << free
                 << ", Expected: " << correctFreeCount << ")\n";
             errorsFound = true;
 
             if (fix) {
                 *logOutput << "FIXING: Correcting free sector count for Track " << track << ".\n";
-
-                if (track <= TRACKS_35) {
-                    bamPtr->bam_track[track - 1].free = correctFreeCount;
-                }
-                else {
-                    bamPtr->bam_extra[(track - TRACKS_35) - 1].free = correctFreeCount;
-                }
+                bamtrack(track - 1)->free = correctFreeCount;
             }
         }
     }
@@ -577,7 +560,8 @@ bool d64::compactDirectory()
         for (int i = 0; i < FILES_PER_SECTOR; ++i) {
             auto& entry = dirSectorPtr->fileEntry[i];
 
-            if ((entry.file_type.closed) == 0) continue; // Skip deleted files
+            if ((entry.file_type.closed) == 0)
+                continue; // Skip deleted files
 
             files.push_back(entry);
         }
@@ -612,7 +596,7 @@ bool d64::compactDirectory()
 
                 // never mark track 18 as free
                 if (dir_track != DIRECTORY_TRACK || dir_sector != DIRECTORY_SECTOR) {
- 
+
                     // Free the sector in BAM
                     freeSector(dir_track, dir_sector);
                     freedSector = true;
@@ -786,7 +770,7 @@ bool d64::extractFile(std::string filename)
         // see if we need to write the whole sector
         // if the track is not zero then write the whole block
         if (next_track.has_value() && next_track.value() != 0) {
-            outFile.write(reinterpret_cast<char*>(&data[offset]), SECTOR_SIZE -2);
+            outFile.write(reinterpret_cast<char*>(&data[offset]), SECTOR_SIZE - 2);
         }
         else {
             // the sector in the last block is actually bytes left of the file
@@ -863,7 +847,7 @@ std::optional<std::vector<uint8_t>> d64::getFile(std::string filename)
 /// </summary>
 /// <returns>Name of the disk</returns>
 std::string d64::diskname()
-{ 
+{
     std::string name;
     if (bamPtr) {
         for (auto& ch : bamPtr->disk_name) {
@@ -871,7 +855,7 @@ std::string d64::diskname()
             name += ch;
         }
     }
-    return name; 
+    return name;
 }
 
 /// <summary>
@@ -912,7 +896,7 @@ bool d64::load(std::string filename)
     if (pos == D64_DISK35_SZ) {
         disktype = thirty_five_track;
     }
-    else if (pos = D64_DISK40_SZ) {
+    else if (pos == D64_DISK40_SZ) {
         disktype = forty_track;
     }
     else {
@@ -926,7 +910,7 @@ bool d64::load(std::string filename)
 
     // read the data
     inFile.read(reinterpret_cast<char*>(data.data()), data.size());
- 
+
     // close the file
     inFile.close();
 
@@ -968,10 +952,8 @@ bool d64::freeSector(const int& track, const int& sector)
     auto byte = (sector / 8);
     auto bit = sector % 8;
 
-    auto val = track <= TRACKS_35 ?
-        bamPtr->bam_track[track - 1].bytes[byte] :
-        bamPtr->bam_extra[(track - TRACKS_35) -1].bytes[byte];
- 
+    auto val = bamtrack(track - 1)->bytes[byte];
+
     // check if sector is already free
     if (val & (1 << bit)) {
         return false;
@@ -979,21 +961,12 @@ bool d64::freeSector(const int& track, const int& sector)
 
     // increment free sectors
     // byte 0 is the number of free sectors
-    if (track <= TRACKS_35) {
-        bamPtr->bam_track[track - 1].free++;
-    }
-    else {
-        bamPtr->bam_extra[(track - TRACKS_35) - 1].free++;
-    }
+    bamtrack(track - 1)->free++;
 
     // mark track sector as free
     val |= (1 << bit);
-    if (track <= TRACKS_35) {
-        bamPtr->bam_track[track - 1].bytes[byte] = val;
-    }
-    else {
-        bamPtr->bam_extra[(track - TRACKS_35) - 1].bytes[byte] = val;
-    }
+    bamtrack(track - 1)->bytes[byte] = val;
+
     return true;
 }
 
@@ -1015,9 +988,7 @@ bool d64::allocateSector(const int& track, const int& sector)
     // is stored as a bitmap of 3 bytes. 1 if free and 0 if allocated
     auto byte = (sector / 8);
     auto bit = sector % 8;
-    auto val = (track <= TRACKS_35) ?
-        bamPtr->bam_track[track - 1].bytes[byte] :
-        bamPtr->bam_extra[(track - TRACKS_35) - 1].bytes[byte];
+    auto val = bamtrack(track - 1)->bytes[byte];
 
     // see if its already allocated
     if ((val | (1 << bit)) == 0) {
@@ -1025,20 +996,9 @@ bool d64::allocateSector(const int& track, const int& sector)
     }
 
     val &= ~(1 << bit);
-    // decrement free sectors
-    if (track <= TRACKS_35) {
-        bamPtr->bam_track[track - 1].free--;
 
-        // mark track sector as used
-        bamPtr->bam_track[track - 1].bytes[byte] = val;
-    }
-    else {
-        bamPtr->bam_extra[(track - TRACKS_35) - 1].free--;
-      
-        // mark track sector as used
-        bamPtr->bam_extra[(track - TRACKS_35) - 1].bytes[byte] = val;
-
-    }
+    bamtrack(track - 1)->free--;            // decrement free sectors
+    bamtrack(track - 1)->bytes[byte] = val; // mark track sector as used
 
     return true;
 }
@@ -1052,8 +1012,7 @@ bool d64::allocateSector(const int& track, const int& sector)
 bool d64::findAndAllocateFree(int track, int& sector)
 {
     // if there are no free sectors in the track go to next track
-    if (bamPtr->bam_track[track - 1].free < 1)
-        return false;
+    if (bamtrack(track - 1)->free < 1) return false;
 
     auto start_sector = (lastSectorUsed[track - 1] + INTERLEAVE) % SECTORS_PER_TRACK[track - 1];
 
@@ -1062,9 +1021,8 @@ bool d64::findAndAllocateFree(int track, int& sector)
         auto s = (start_sector + i) % SECTORS_PER_TRACK[track - 1]; // Wrap around
         auto byte = (s / 8);
         auto bit = s % 8;
-        auto val = track <= TRACKS_35 ? 
-            bamPtr->bam_track[track - 1].bytes[byte] :
-            bamPtr->bam_extra[(track - TRACKS_35) - 1].bytes[byte];
+        auto val = bamtrack(track - 1)->bytes[byte];
+
         if (val & (1 << bit)) {
             allocateSector(track, s);
             sector = s;
@@ -1097,7 +1055,7 @@ bool d64::findAndAllocateFreeSector(int& track, int& sector)
 
     if (disktype == TRACKS_35) {
         // iterate the tracks
-        for (auto t : TRACK_SEARCH_ORDER) {
+        for (auto& t : TRACK_SEARCH_ORDER) {
             if (findAndAllocateFree(t, sector)) {
                 track = t;
                 return true;
@@ -1105,7 +1063,7 @@ bool d64::findAndAllocateFreeSector(int& track, int& sector)
         }
     }
     else {
-        for (auto t : TRACK_40_SEARCH_ORDER) {
+        for (auto& t : TRACK_40_SEARCH_ORDER) {
             if (findAndAllocateFree(t, sector)) {
                 track = t;
                 return true;
@@ -1154,14 +1112,9 @@ uint16_t d64::getFreeSectorCount()
         // skip directory track
         if (t == DIRECTORY_TRACK)
             continue;
-    
+
         // add the free bytes of each track
-        if (t <= TRACKS_35) {
-            free += static_cast<uint16_t>(bamPtr->bam_track[t - 1].free);
-        }
-        else {
-            free += static_cast<uint16_t>(bamPtr->bam_extra[(t - TRACKS_35) - 1].free);
-        }
+        free += static_cast<uint16_t>(bamtrack(t - 1)->free);
     }
     return free;
 }
@@ -1195,7 +1148,7 @@ void d64::initializeBAMFields(std::string_view name)
     bamPtr->disk_id[0] = A0_VALUE;
     bamPtr->disk_id[1] = A0_VALUE;
     bamPtr->unused2 = A0_VALUE;
-   
+
     // set dos and version
     bamPtr->dos_type[0] = DOS_TYPE;
     bamPtr->dos_type[1] = DOS_VERSION;
@@ -1336,7 +1289,7 @@ bool d64::reorderDirectory(std::function<bool(const Directory_Entry&, const Dire
     // get the current directory entries
     std::vector<Directory_Entry> files = directory();
 
-    if (files.empty()) 
+    if (files.empty())
         return false; // No files to reorder
 
     // Sort files based on user-defined comparison function**
@@ -1364,7 +1317,7 @@ std::vector<d64::Directory_Entry> d64::directory()
 
         for (int i = 0; i < FILES_PER_SECTOR; ++i) {
             auto& entry = dirSectorPtr->fileEntry[i];
-            if ((entry.file_type.closed) == 0) 
+            if ((entry.file_type.closed) == 0)
                 continue; // Skip deleted files
             files.push_back(entry);
         }
@@ -1394,14 +1347,6 @@ bool d64::validateD64()
         return false;
     }
 
-#if 0
-    if (bamPtr->dos_version != DOS_VERSION ||
-        bamPtr->dos_type[0] != DOS_TYPE || bamPtr->dos_type[1] != DOS_VERSION) {
-        std::cerr << "Error: BAM structure is invalid (Incorrect directory DOS Type or version).\n";
-        return false;
-    }
-#endif
-
     // Check sector data integrity (optional deeper check)
     auto track = readSector(DIRECTORY_TRACK, DIRECTORY_SECTOR, 0);
     auto sector = readSector(DIRECTORY_TRACK, DIRECTORY_SECTOR, 1);
@@ -1411,5 +1356,71 @@ bool d64::validateD64()
         return false;
     }
 
+    return true;
+}
+
+/// <summary>
+/// Extract a .rel file from the disk 
+/// </summary>
+/// <param name="filename">file to extract</param>
+/// <returns>true on sucess</returns>
+bool d64::extractRELFile(const std::string& filename)
+{
+    auto fileEntry = findFile(filename);
+    if (!fileEntry.has_value() || fileEntry.value()->file_type.type != FileTypes::REL) {
+        std::cerr << "Error: \"" << filename << "\" is not a REL file.\n";
+        return false;
+    }
+
+    // Get initial track/sector & record length
+    int track = fileEntry.value()->track;
+    int sector = fileEntry.value()->sector;
+    int sideTrack = fileEntry.value()->side_track;
+    int sideSector = fileEntry.value()->side_sector;
+    int recordLength = fileEntry.value()->record_length;
+
+    if (recordLength == 0) {
+        std::cerr << "Error: Invalid REL file structure.\n";
+        return false;
+    }
+
+    std::ofstream outFile(filename + ".rel", std::ios::binary);
+    std::vector<int> recordMap;  // Holds the logical order of sectors
+
+    std::cout << "Extracting REL file: " << filename << "\n";
+    std::cout << "Main data starts at Track " << track << ", Sector " << sector << "\n";
+    std::cout << "Side sector chain starts at Track " << sideTrack << ", Sector " << sideSector << "\n";
+    std::cout << "Record length: " << recordLength << " bytes\n";
+
+    // Read the side sector chain
+    while (sideTrack != 0) {
+        int offset = calcOffset(sideTrack, sideSector);
+        std::cout << "Reading side sector at Track " << sideTrack << ", Sector " << sideSector << "\n";
+
+        // Each side sector stores pointers to logical record sectors
+        for (int i = 2; i < SECTOR_SIZE; i += 2) {  // Skip first 2 bytes (next track/sector)
+            uint8_t recTrack = data[offset + i];
+            uint8_t recSector = data[offset + i + 1];
+
+            if (recTrack == 0) break;  // End of side sector
+
+            int recOffset = calcOffset(recTrack, recSector);
+            recordMap.push_back(recOffset);
+
+            std::cout << "Record maps to Track " << (int)recTrack << ", Sector " << (int)recSector << "\n";
+        }
+
+        // Move to the next side sector in the chain
+        sideTrack = data[offset];    // Next track
+        sideSector = data[offset + 1]; // Next sector
+    }
+
+    // Extract file data using the logical record mapping
+    for (int recOffset : recordMap) {
+        outFile.write(reinterpret_cast<char*>(&data[recOffset]), recordLength);
+    }
+
+    outFile.close();
+    std::cout << "REL file extracted: " << filename << ".rel\n";
     return true;
 }
