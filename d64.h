@@ -165,7 +165,7 @@ public:
 
     inline BAM_TRACK_ENTRY* bamtrack(int t)
     {
-        return (t < TRACKS_35) ? &bamPtr->bam_track[(t)] : &bamPtr->bam_extra[((t) - TRACKS_35)];
+        return (t < TRACKS_35) ? &bamPtr->bam_track[(t)] : &bamPtr->bam_extra[((t)-TRACKS_35)];
     }
 
     void formatDisk(std::string_view name);
@@ -177,7 +177,6 @@ public:
     bool removeFile(std::string_view filename);
     bool renameFile(std::string_view oldfilename, std::string_view newfilename);
     bool extractFile(std::string filename);
-    bool extractRELFile(const std::string& filename);
     bool save(std::string filename);
     bool load(std::string filename);
 
@@ -189,7 +188,7 @@ public:
     bool freeSector(const int& track, const int& sector);
     bool allocateSector(const int& track, const int& sector);
     bool findAndAllocateFreeSector(int& track, int& sector);
-    std::optional<std::vector<uint8_t>> getFile(std::string filename);
+    std::optional<std::vector<uint8_t>> readFile(std::string filename);
 
     uint16_t getFreeSectorCount();
     BAMPtr getBAMPtr();
@@ -214,10 +213,13 @@ private:
     bool validateD64();
     void initBAM(std::string_view name);
     void initializeBAMFields(std::string_view name);
+    std::vector<std::pair<int, int>> parseSideSectors(int sideTrack, int sideSector);
     BAMPtr bamPtr;
     diskType disktype;
     void init_disk();
     bool findAndAllocateFree(int t, int& sector);
+    std::optional<std::vector<uint8_t>> readRELFile(d64::Directory_EntryPtr fileEntry);
+    std::optional<std::vector<uint8_t>> readPRGFile(d64::Directory_EntryPtr fileEntry);
 };
 
 #pragma pack(pop)

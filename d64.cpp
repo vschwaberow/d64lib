@@ -53,11 +53,16 @@ d64::d64(std::string name)
 /// </summary>
 void d64::init_disk()
 {
-    TRACKS = (disktype == thirty_five_track) ? TRACKS_35 : TRACKS_40;
-
-    // allocate the data
-    data.resize
-    (disktype == thirty_five_track ? D64_DISK35_SZ : D64_DISK40_SZ, 1);
+    int sz = 0;
+    if (disktype == thirty_five_track) {
+        TRACKS = TRACKS_35;
+        sz = D64_DISK35_SZ;
+    }
+    else if (disktype == forty_track) {
+        TRACKS = TRACKS_40;
+        sz = D64_DISK40_SZ;
+    }
+    data.resize(sz, 0x01);
 
     // create a new disk
     formatDisk("NEW DISK");
@@ -722,7 +727,7 @@ bool d64::renameFile(std::string_view oldfilename, std::string_view newfilename)
 /// extract a file from the disk
 /// </summary>
 /// <param name="filename">file to extrack</param>
-/// <returns>tru if successful</returns>
+/// <returns>true if successful</returns>
 bool d64::extractFile(std::string filename)
 {
     // find the file
@@ -731,8 +736,6 @@ bool d64::extractFile(std::string filename)
         std::cerr << "File not found: " << filename << std::endl;
         return false;
     }
-
-    // set the file extension based off file type
     std::string ext;
     if (fileEntry.value()->file_type.type == FileTypes::PRG) {
         ext = ".prg";
@@ -750,50 +753,27 @@ bool d64::extractFile(std::string filename)
         std::cerr << "Unknown file type: " << static_cast<uint8_t>(fileEntry.value()->file_type) << std::endl;
         return false;
     }
-    std::ofstream outFile((filename + ext).c_str(), std::ios::binary);
 
-    // get the files start track and sector
-    int track = fileEntry.value()->track;
-    int sector = fileEntry.value()->sector;
-
-    // track will be 0 at end of the file
-    while (track != 0) {
-        // get teh next track and sector of file
-        auto next_track = readSector(track, sector, 0);
-        auto next_sector = readSector(track, sector, 1);
-
-        // get the byte offset of the file sector
-        auto offset = calcOffset(track, sector);
-        // add 2 to skip past next track and sector
-        offset += 2;
-
-        // see if we need to write the whole sector
-        // if the track is not zero then write the whole block
-        if (next_track.has_value() && next_track.value() != 0) {
-            outFile.write(reinterpret_cast<char*>(&data[offset]), SECTOR_SIZE - 2);
-        }
-        else {
-            // the sector in the last block is actually bytes left of the file
-            int bytes_left = static_cast<int>(next_sector.value());
-            outFile.write(reinterpret_cast<char*>(&data[offset]), bytes_left);
-        }
-        // set current track and sector
-        track = next_track.value_or(0);
-        sector = next_sector.value_or(0xFF);
+    auto fileData = readFile(filename);
+    if (!fileData.has_value()) {
+        std::cerr << "Unable to read file." << filename << std::endl;
+        return false;
     }
-    // close the file
+
+
+    std::ofstream outFile((filename + ext).c_str(), std::ios::binary);
+    outFile.write(reinterpret_cast<char*>(&fileData.value()[0]), fileData.value().size());
     outFile.close();
 
-    // exit
     return true;
 }
 
 /// <summary>
 /// get file data from the disk
 /// </summary>
-/// <param name="filename">file to extrack</param>
-/// <returns>tru if successful</returns>
-std::optional<std::vector<uint8_t>> d64::getFile(std::string filename)
+/// <param name="filename">file to read</param>
+/// <returns>true if successful</returns>
+std::optional<std::vector<uint8_t>> d64::readFile(std::string filename)
 {
     // find the file
     auto fileEntry = findFile(filename);
@@ -801,45 +781,10 @@ std::optional<std::vector<uint8_t>> d64::getFile(std::string filename)
         std::cerr << "File not found: " << filename << std::endl;
         return std::nullopt;
     }
-    std::vector<uint8_t> fileData;
-
-    // get the files start track and sector
-    int track = fileEntry.value()->track;
-    int sector = fileEntry.value()->sector;
-
-    // track will be 0 at end of the file
-    while (track != 0) {
-        // get the next track and sector of file
-        auto next_track = readSector(track, sector, 0);
-        auto next_sector = readSector(track, sector, 1);
-
-        // get the byte offset of the file sector
-        auto offset = calcOffset(track, sector);
-        // add 2 to skip past next track and sector
-        offset += 2;
-
-        // see if we need to write the whole sector
-        // if the track is not zero then write the whole block
-        if (next_track.has_value() && next_track.value() != 0) {
-            for (auto byte = 0; byte < SECTOR_SIZE - 2; ++byte) {
-                fileData.push_back(data[offset + byte]);
-            }
-        }
-        else {
-            // the sector in the last block is actually bytes left of the file
-            int bytes_left = static_cast<int>(next_sector.value());
-            for (auto byte = 0; byte < bytes_left; ++byte) {
-                fileData.push_back(data[offset + byte]);
-            }
-        }
-
-        // set current track and sector
-        track = next_track.value_or(0);
-        sector = next_sector.value_or(0xFF);
+    if (fileEntry.value()->file_type.type == FileTypes::REL) {
+        return readRELFile(fileEntry.value());
     }
-
-    // exit
-    return fileData;
+    return readPRGFile(fileEntry.value());
 }
 
 /// <summary>
@@ -1006,9 +951,9 @@ bool d64::allocateSector(const int& track, const int& sector)
 /// <summary>
 /// Find and allocate a sector in provided track
 /// </summary>
-/// <param name="track"></param>
-/// <param name="sector"></param>
-/// <returns></returns>
+/// <param name="track">track to search for free sector</param>
+/// <param name="sector">out found sector if sucessful</param>
+/// <returns>true if successful</returns>
 bool d64::findAndAllocateFree(int track, int& sector)
 {
     // if there are no free sectors in the track go to next track
@@ -1023,6 +968,7 @@ bool d64::findAndAllocateFree(int track, int& sector)
         auto bit = s % 8;
         auto val = bamtrack(track - 1)->bytes[byte];
 
+        // see if sector is free
         if (val & (1 << bit)) {
             allocateSector(track, s);
             sector = s;
@@ -1360,67 +1306,140 @@ bool d64::validateD64()
 }
 
 /// <summary>
-/// Extract a .rel file from the disk 
+/// Read side sectors of .REL file
 /// </summary>
-/// <param name="filename">file to extract</param>
-/// <returns>true on sucess</returns>
-bool d64::extractRELFile(const std::string& filename)
+/// <param name="sideTrack">side track</param>
+/// <param name="sideSector">side sector</param>
+/// <returns>true if successful</returns>
+std::vector<std::pair<int, int>> d64::parseSideSectors(int sideTrack, int sideSector)
 {
-    auto fileEntry = findFile(filename);
-    if (!fileEntry.has_value() || fileEntry.value()->file_type.type != FileTypes::REL) {
-        std::cerr << "Error: \"" << filename << "\" is not a REL file.\n";
-        return false;
-    }
+    std::vector<std::pair<int, int>> recordMap; // Store (track, sector) pairs
 
-    // Get initial track/sector & record length
-    int track = fileEntry.value()->track;
-    int sector = fileEntry.value()->sector;
-    int sideTrack = fileEntry.value()->side_track;
-    int sideSector = fileEntry.value()->side_sector;
-    int recordLength = fileEntry.value()->record_length;
-
-    if (recordLength == 0) {
-        std::cerr << "Error: Invalid REL file structure.\n";
-        return false;
-    }
-
-    std::ofstream outFile(filename + ".rel", std::ios::binary);
-    std::vector<int> recordMap;  // Holds the logical order of sectors
-
-    std::cout << "Extracting REL file: " << filename << "\n";
-    std::cout << "Main data starts at Track " << track << ", Sector " << sector << "\n";
-    std::cout << "Side sector chain starts at Track " << sideTrack << ", Sector " << sideSector << "\n";
-    std::cout << "Record length: " << recordLength << " bytes\n";
-
-    // Read the side sector chain
     while (sideTrack != 0) {
         int offset = calcOffset(sideTrack, sideSector);
         std::cout << "Reading side sector at Track " << sideTrack << ", Sector " << sideSector << "\n";
 
-        // Each side sector stores pointers to logical record sectors
-        for (int i = 2; i < SECTOR_SIZE; i += 2) {  // Skip first 2 bytes (next track/sector)
+        // First 2 bytes: Next side-sector location
+        uint8_t nextTrack = data[offset];
+        uint8_t nextSector = data[offset + 1];
+
+        // Record size (from offset 3)
+        uint8_t recordSize = data[offset + 3];
+        std::cout << "Record size: " << (int)recordSize << " bytes\n";
+
+        // Read record-to-sector mappings (from offset 16 onward)
+        for (int i = 16; i < SECTOR_SIZE; i += 2) {
             uint8_t recTrack = data[offset + i];
             uint8_t recSector = data[offset + i + 1];
 
-            if (recTrack == 0) break;  // End of side sector
+            if (recTrack == 0) break;  // End of records
 
-            int recOffset = calcOffset(recTrack, recSector);
-            recordMap.push_back(recOffset);
-
+            recordMap.emplace_back(recTrack, recSector);
             std::cout << "Record maps to Track " << (int)recTrack << ", Sector " << (int)recSector << "\n";
         }
 
-        // Move to the next side sector in the chain
-        sideTrack = data[offset];    // Next track
-        sideSector = data[offset + 1]; // Next sector
+        // Move to next side sector
+        sideTrack = nextTrack;
+        sideSector = nextSector;
     }
 
-    // Extract file data using the logical record mapping
-    for (int recOffset : recordMap) {
-        outFile.write(reinterpret_cast<char*>(&data[recOffset]), recordLength);
+    return recordMap;
+}
+
+
+/// <summary>
+/// Read a file from the disk
+/// any type except .real
+/// </summary>
+/// <param name="filename">file to extract</param>
+/// <returns>true on sucess</returns>
+std::optional<std::vector<uint8_t>> d64::readPRGFile(d64::Directory_EntryPtr fileEntry)
+{
+    std::vector<uint8_t> fileData;
+
+    // get the files start track and sector
+    int track = fileEntry->track;
+    int sector = fileEntry->sector;
+
+    // track will be 0 at end of the file
+    while (track != 0) {
+        // get the next track and sector of file
+        auto next_track = readSector(track, sector, 0);
+        auto next_sector = readSector(track, sector, 1);
+
+        // get the byte offset of the file sector
+        auto offset = calcOffset(track, sector);
+        // add 2 to skip past next track and sector
+        offset += 2;
+
+        // see if we need to write the whole sector
+        // if the track is not zero then write the whole block
+        if (next_track.has_value() && next_track.value() != 0) {
+            for (auto byte = 0; byte < SECTOR_SIZE - 2; ++byte) {
+                fileData.push_back(data[offset + byte]);
+            }
+        }
+        else {
+            // the sector in the last block is actually bytes left of the file
+            int bytes_left = static_cast<int>(next_sector.value());
+            for (auto byte = 0; byte < bytes_left; ++byte) {
+                fileData.push_back(data[offset + byte]);
+            }
+        }
+
+        // set current track and sector
+        track = next_track.value_or(0);
+        sector = next_sector.value_or(0xFF);
     }
 
-    outFile.close();
-    std::cout << "REL file extracted: " << filename << ".rel\n";
-    return true;
+    // exit
+    return fileData;
+}
+
+/// <summary>
+/// Read a .rel file from the disk 
+/// </summary>
+/// <param name="filename">file to extract</param>
+/// <returns>true on sucess</returns>
+std::optional<std::vector<uint8_t>> d64::readRELFile(d64::Directory_EntryPtr fileEntry)
+{
+    if (fileEntry->file_type.type != FileTypes::REL) {
+        std::cerr << "Error: file is not a REL file.\n";
+        return std::nullopt;
+    }
+
+    // Get initial track/sector & record length
+    int track = fileEntry->track;
+    int sector = fileEntry->sector;
+    int sideTrack = fileEntry->side_track;
+    int sideSector = fileEntry->side_sector;
+    int recordLength = fileEntry->record_length;
+
+    if (recordLength == 0) {
+        std::cerr << "Error: Invalid REL file structure.\n";
+        return std::nullopt;
+    }
+
+    std::vector<uint8_t> fileData;
+
+    std::cout << "Extracting REL file: " << "\n";
+    std::cout << "Main data starts at Track " << track << ", Sector " << sector << "\n";
+    std::cout << "Side sector chain starts at Track " << sideTrack << ", Sector " << sideSector << "\n";
+    std::cout << "Record length: " << recordLength << " bytes\n";
+
+    // Get the record-to-sector mapping
+    std::vector<std::pair<int, int>> recordMap = parseSideSectors(sideTrack, sideSector);
+
+    // Extract records in order
+    for (auto& [recTrack, recSector] : recordMap) {
+        auto offset = calcOffset(recTrack, recSector);
+
+        for (auto byte = 2; byte < recordLength + 2; ++byte) {
+            fileData.push_back(data[offset + byte]);
+        }
+        std::cout << "Extracted record from Track " << recTrack << ", Sector " << recSector << "\n";
+    }
+
+    std::cout << "REL file extracted: " << ".rel\n";
+    return fileData;
 }
