@@ -20,11 +20,16 @@ const int UNUSED4_SZ = 84;
 const int DIR_ENTRY_SZ = 30;
 const int DIRECTORY_TRACK = 18;
 const int DIRECTORY_SECTOR = 1;
+const int TRACK_SECTOR = 0;
+const int SECTOR_SECTOR = 1;
 const int BAM_SECTOR = 0;
 const int FILES_PER_SECTOR = 8;
 
 const int D64_DISK35_SZ = 174848;
 const int D64_DISK40_SZ = 196608;
+
+const int SIDE_SECTOR_ENTRY_SIZE = 6;
+const int SIDE_SECTOR_CHAIN_SZ = ((SECTOR_SIZE - 15) / (2));
 
 class d64 {
 public:
@@ -62,6 +67,31 @@ public:
         REL = 4
     };
 
+    // Track and sector
+    struct TrackSector {
+    public:
+        uint8_t track;
+        uint8_t sector;
+    };
+
+    struct Sector {
+    public:
+        TrackSector next;
+        std::array<uint8_t, 254> data;
+    };
+    typedef Sector* SectorPtr;
+
+    // side sector
+    class SideSector {
+    public:
+        TrackSector next;                                   // $01 - $02
+        uint8_t block;                                      // $02
+        uint8_t recordsize;                                 // $03
+        TrackSector side_sectors[SIDE_SECTOR_ENTRY_SIZE];   // $04 - $0F
+        TrackSector chain[SIDE_SECTOR_CHAIN_SZ];            // chain T/S
+    };
+    typedef SideSector* SideSectorPtr;
+
     class FileType {
     public:
         FileTypes type : 4;
@@ -94,8 +124,7 @@ public:
 
     // This folows DOLPHIN DOS for 40 tracks
     struct BAM {
-        uint8_t dir_track;                      // $00          track of directory entry
-        uint8_t dir_sector;                     // $01          sector of next directory entry
+        TrackSector dir_start;                  // $00 - $01
         uint8_t dos_version;                    // $02          'A' dos version
         uint8_t unused;                         // $03          unused should be 0
         BAM_TRACK_ENTRY bam_track[TRACKS_35];   // $04 - $8F    BAM to each track
@@ -114,30 +143,27 @@ public:
 
     struct Directory_Entry {
         FileType file_type;                 // $00          file type
-        uint8_t track;                      // $01          first track of file entry
-        uint8_t sector;                     // $02          first sector of file entry
+        TrackSector start;                  // $01 - $02    first track  and sector of file entry
         char file_name[FILE_NAME_SZ];       // $03 - $12    file name padded with $A0
-        uint8_t side_track;                 // $13          first side track .REL file only
-        uint8_t side_sector;                // $14          first side track .REL file only
+        TrackSector side;                   // $13 - $14    first side track/sector .REL file only
         uint8_t record_length;              // $15          record side track .REL file only
         uint8_t unused[4];                  // $16 - $19    unused
-        uint8_t replace_track;              // $1A          track of replacement file during @save
-        uint8_t replace_sector;             // $1B          sector of replacement file during @save
+        TrackSector replace;                // $1A - $1B    track / sector of replacement file during @save
         uint8_t file_size[2];               // $1C - $1D    low byte high byte for file size
         uint8_t padd[2];                    // $1E - $1F    undocumented padd
 
         bool operator==(const Directory_Entry& other) const
         {
             return (uint8_t)file_type == (uint8_t)other.file_type &&
-                track == other.track &&
-                sector == other.sector &&
+                start.track == other.start.track &&
+                start.sector == other.start.sector &&
                 std::memcmp(file_name, other.file_name, FILE_NAME_SZ) == 0 &&
-                side_track == other.side_track &&
-                side_sector == other.side_sector &&
+                side.track == other.side.track &&
+                side.sector == other.side.sector &&
                 record_length == other.record_length &&
                 std::memcmp(unused, other.unused, sizeof(unused)) == 0 &&
-                replace_track == other.replace_track &&
-                replace_sector == other.replace_sector &&
+                replace.track == other.replace.track &&
+                replace.sector == other.replace.sector &&
                 std::memcmp(file_size, other.file_size, sizeof(file_size)) == 0;
         }
         bool operator!=(const Directory_Entry& other) const
@@ -148,8 +174,7 @@ public:
     typedef struct Directory_Entry* Directory_EntryPtr;
 
     struct Directory_Sector {
-        uint8_t track;
-        uint8_t sector;
+        TrackSector next;
         Directory_Entry fileEntry[FILES_PER_SECTOR];
     };
     typedef struct Directory_Sector* Directory_SectorPtr;
@@ -167,6 +192,18 @@ public:
     {
         return (t < TRACKS_35) ? &bamPtr->bam_track[(t)] : &bamPtr->bam_extra[((t)-TRACKS_35)];
     }
+    inline SectorPtr getSectorPtr(uint8_t track, uint8_t sector)
+    {
+        return reinterpret_cast<SectorPtr>(&data[calcOffset(track, sector)]);
+    }
+    inline TrackSector* getTrackSectorPtr(uint8_t track, uint8_t sector)
+    {
+        return reinterpret_cast<TrackSector*>(&data[calcOffset(track, sector)]);
+    }
+    inline SideSectorPtr getSideSectorPtr(uint8_t track, uint8_t sector)
+    {
+        return reinterpret_cast<SideSectorPtr>(&data[calcOffset(track, sector)]);
+    }
 
     void formatDisk(std::string_view name);
     bool rename_disk(std::string_view name) const;
@@ -174,6 +211,7 @@ public:
 
     std::optional<Directory_EntryPtr> findFile(std::string_view filename);
     bool addFile(std::string_view filename, FileType type, const std::vector<uint8_t>& fileData);
+    bool addRelFile(std::string_view filename, FileType type, uint8_t record_size, const std::vector<uint8_t>& fileData);
     bool removeFile(std::string_view filename);
     bool renameFile(std::string_view oldfilename, std::string_view newfilename);
     bool extractFile(std::string filename);
@@ -181,9 +219,9 @@ public:
     bool load(std::string filename);
 
     int calcOffset(int track, int sector) const;
-    bool writeSector(int track, int sector, int offset, uint8_t value);
+    bool writeByte(int track, int sector, int offset, uint8_t value);
     bool writeSector(int track, int sector, std::vector<uint8_t> bytes);
-    std::optional<uint8_t> readSector(int track, int sector, int offset);
+    std::optional<uint8_t> readByte(int track, int sector, int offset);
     std::optional<std::vector<uint8_t>> readSector(int track, int sector);
     bool freeSector(const int& track, const int& sector);
     bool allocateSector(const int& track, const int& sector);
@@ -199,9 +237,7 @@ public:
     bool reorderDirectory(std::vector<Directory_Entry>& files);
     bool reorderDirectory(const std::vector<std::string>& fileOrder);
     bool movefileFirst(std::string file);
-    bool movefile(std::string file, bool up);
-    bool lockfile(std::string file);
-    bool unlockfile(std::string file);
+    bool lockfile(std::string file, bool lock);
     std::vector<Directory_Entry> directory();
     static std::string Trim(const char filename[FILE_NAME_SZ]);
 
@@ -213,11 +249,12 @@ private:
     bool validateD64();
     void initBAM(std::string_view name);
     void initializeBAMFields(std::string_view name);
-    std::vector<std::pair<int, int>> parseSideSectors(int sideTrack, int sideSector);
+    std::vector<d64::TrackSector> parseSideSectors(int sideTrack, int sideSector);
     BAMPtr bamPtr;
-    diskType disktype;
+    diskType disktype = thirty_five_track;
     void init_disk();
-    bool findAndAllocateFree(int t, int& sector);
+    bool findAndAllocateFreeOnTrack(int t, int& sector);
+    std::optional<d64::Directory_EntryPtr> findEmptyDirectorySlot();
     std::optional<std::vector<uint8_t>> readRELFile(d64::Directory_EntryPtr fileEntry);
     std::optional<std::vector<uint8_t>> readPRGFile(d64::Directory_EntryPtr fileEntry);
 };
