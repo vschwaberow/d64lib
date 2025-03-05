@@ -1012,7 +1012,7 @@ bool d64::load(std::string filename)
 bool d64::freeSector(const int& track, const int& sector)
 {
     // validate track sector number
-    if (track < 1 || track > TRACKS || sector < 0 || sector > SECTORS_PER_TRACK[track]) {
+    if (track < 1 || track > TRACKS || sector < 0 || sector > SECTORS_PER_TRACK[track -1]) {
         std::cerr << "Invalid Tack and Sector TRACK:" << track << " SECTOR:" << sector << std::endl;
         return false;
     }
@@ -1104,15 +1104,15 @@ bool d64::findAndAllocateFreeOnTrack(int track, int& sector)
 
     // find the free sector
     for (auto i = 0; i < SECTORS_PER_TRACK[track - 1]; ++i) {
-        int s = (start_sector + i) % SECTORS_PER_TRACK[track - 1]; // Wrap around
-        int byte = (s / 8);
-        int bit = s % 8;
+        int search_sector = (start_sector + i) % SECTORS_PER_TRACK[track - 1]; // Wrap around
+        int byte = (search_sector / 8);
+        int bit = search_sector % 8;
         int val = bamtrack(track - 1)->bytes[byte];
 
         // see if sector is free
         if (val & (1 << bit)) {
-            allocateSector(track, s);
-            sector = s;
+            allocateSector(track, search_sector);
+            sector = search_sector;
             // update the last sector used for the track
             lastSectorUsed[track - 1] = sector;
             return true;
@@ -1250,7 +1250,6 @@ std::string d64::Trim(const char filename[FILE_NAME_SZ])
 bool d64::movefileFirst(std::string file)
 {
     std::vector<Directory_Entry> files = directory();
-
     auto it = std::find_if(files.begin(), files.end(), [&](const Directory_Entry& entry)
         {
             return Trim(entry.file_name) == file;
@@ -1264,7 +1263,7 @@ bool d64::movefileFirst(std::string file)
 }
 
 /// <summary>
-/// Lock a file
+/// Lock/unlock a file
 /// </summary>
 /// <param name="filename">file to lock</param>
 /// <returns>true on success</returns>
