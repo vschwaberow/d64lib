@@ -5,6 +5,9 @@ project(d64lib)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+#unittests
+add_subdirectory(unittests)
+
 # Add library
 add_library(d64lib d64.cpp d64.h)
 
