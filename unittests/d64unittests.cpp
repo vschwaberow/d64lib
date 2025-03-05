@@ -77,11 +77,10 @@ namespace d64lib_unit_test
             for (auto i = 0; i < filedata.capacity(); i++) {
                 filedata[i] = file + i;
             }
-            char buffer[10] = { 0 };
-            itoa(file, buffer, 10);
+            auto numpart = std::to_string(file);
 
             std::string filename = "FILE";
-            filename += buffer;
+            filename += numpart;
             auto added = disk.addFile(filename, d64::FileTypes::PRG, filedata);
             EXPECT_TRUE(added);
             auto dir = disk.directory();

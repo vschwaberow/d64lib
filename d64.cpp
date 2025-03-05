@@ -11,6 +11,8 @@
 #include <stdexcept>
 #include <map>
 #include <sstream>
+#include <cstring>
+
 #include "d64.h"
 
 #pragma warning(disable:4267 28020)
@@ -968,9 +970,9 @@ bool d64::load(std::string filename)
         std::cerr << "Error: Could not open disk file " << filename << " for reading.\n";
         return false;
     }
-    inFile.seekg(0, SEEK_END);
+    inFile.seekg(0, std::ios::end);
     auto pos = inFile.tellg();
-    inFile.seekg(0, SEEK_SET);
+    inFile.seekg(0, std::ios::beg);
     if (pos == D64_DISK35_SZ) {
         disktype = thirty_five_track;
     }

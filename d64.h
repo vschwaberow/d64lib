@@ -6,6 +6,7 @@
 #include <functional>
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 
 #pragma pack(push, 1)
 
