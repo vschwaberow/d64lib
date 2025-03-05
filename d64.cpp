@@ -929,11 +929,9 @@ std::optional<std::vector<uint8_t>> d64::readFile(std::string filename)
 std::string d64::diskname()
 {
     std::string name;
-    if (bamPtr) {
-        for (auto& ch : bamPtr->disk_name) {
-            if (ch == static_cast<char>(0xA0)) return name;
-            name += ch;
-        }
+    for (auto& ch : bamPtr->disk_name) {
+        if (ch == static_cast<char>(0xA0)) return name;
+        name += ch;
     }
     return name;
 }
@@ -1029,10 +1027,10 @@ bool d64::freeSector(const int& track, const int& sector)
 
     // calculate byte of BAM entry for track
     // is stored as a bitmap of 3 bytes. 1 if free and 0 if allocated
-    auto byte = (sector / 8);
-    auto bit = sector % 8;
+    int byte = (sector / 8);
+    int bit = sector % 8;
 
-    auto val = bamtrack(track - 1)->bytes[byte];
+    int val = bamtrack(track - 1)->bytes[byte];
 
     // check if sector is already free
     if (val & (1 << bit)) {
@@ -1045,7 +1043,7 @@ bool d64::freeSector(const int& track, const int& sector)
 
     // mark track sector as free
     val |= (1 << bit);
-    bamtrack(track - 1)->bytes[byte] = val;
+    bamtrack(track - 1)->bytes[byte] = val & 0xFF;
 
     return true;
 }
@@ -1066,9 +1064,9 @@ bool d64::allocateSector(const int& track, const int& sector)
 
     // calculate byte of BAM entry for track
     // is stored as a bitmap of 3 bytes. 1 if free and 0 if allocated
-    auto byte = (sector / 8);
-    auto bit = sector % 8;
-    auto val = bamtrack(track - 1)->bytes[byte];
+    int byte = (sector / 8);
+    int bit = sector % 8;
+    int val = bamtrack(track - 1)->bytes[byte];
 
     // see if its already allocated
     if ((val | (1 << bit)) == 0) {
@@ -1077,8 +1075,8 @@ bool d64::allocateSector(const int& track, const int& sector)
 
     val &= ~(1 << bit);
 
-    bamtrack(track - 1)->free--;            // decrement free sectors
-    bamtrack(track - 1)->bytes[byte] = val; // mark track sector as used
+    bamtrack(track - 1)->free--;                    // decrement free sectors
+    bamtrack(track - 1)->bytes[byte] = val & 0xFF;  // mark track sector as used
 
     return true;
 }
