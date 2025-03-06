@@ -92,6 +92,30 @@ namespace d64lib_unit_test
         d64lib_unit_test_method_cleanup();
     }
 
+    TEST(d64lib_unit_test, large_file_unit_test)
+    {
+        const auto bigSize = 20000;
+
+        std::vector<uint8_t> big_file(bigSize);
+
+        for (auto i = 0; i < bigSize; ++i) {
+            big_file[i] = i % 256;
+        }
+
+        d64 disk;
+
+        auto added = disk.addFile("BIG", d64::FileTypes::SEQ, big_file);
+        EXPECT_TRUE(added);
+
+        auto readfile = disk.readFile("BIG");
+        EXPECT_TRUE(readfile.has_value());
+        if (readfile.has_value()) {
+            for (auto i = 0; i < bigSize; ++i) {
+                EXPECT_TRUE(readfile.value()[i] == big_file[i]);
+            }
+        }
+    }
+
     TEST(d64lib_unit_test, add_file_unit_test)
     {
         std::vector<uint8_t> prog = {
@@ -116,7 +140,6 @@ namespace d64lib_unit_test
             auto readfile = disk.readFile(filename);
             EXPECT_TRUE(readfile.has_value());
             if (readfile.has_value()) {
-                EXPECT_TRUE(readfile.value().size() == prog.size());
                 EXPECT_TRUE(readfile.value() == prog);
             }
         }
@@ -150,7 +173,6 @@ namespace d64lib_unit_test
 
             std::remove((filename + ".prg").c_str());
         }
-
         
     }
 
