@@ -11,7 +11,7 @@
 #include <stdexcept>
 #include <map>
 #include <sstream>
-#include <cstring>
+#include <bitset>
 
 #include "d64.h"
 
@@ -107,12 +107,13 @@ void d64::initBAM(std::string_view name)
 
         bamtrack(t)->bytes[0] = 0xFF;
         bamtrack(t)->bytes[1] = 0xFF;
-        auto val = 0;
         auto bits = SECTORS_PER_TRACK[t] % 8;
+        std::bitset<sizeof(uint8_t) * 8> val(0);
+
         for (auto b = 0; b < bits; ++b) {
-            val |= (1 << b);
+            val.set(b);
         }
-        bamtrack(t)->bytes[2] = val;
+        bamtrack(t)->bytes[2] = val.to_ullong() & 0xFF;
     }
 
     // Initialize the directory structure
@@ -238,12 +239,11 @@ std::optional<d64::Directory_EntryPtr> d64::findEmptyDirectorySlot()
 
     while (dir_track != 0) {
         Directory_SectorPtr dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
-        for (auto file_entry_index = 1; file_entry_index <= FILES_PER_SECTOR; ++file_entry_index) {
-            auto fileEntry = &(dirSectorPtr->fileEntry[file_entry_index - 1]);
+        for (auto& fileEntry: dirSectorPtr->fileEntry) {
 
             // see if slot is free
-            if (!fileEntry->file_type.closed) {
-                return fileEntry;
+            if (!fileEntry.file_type.closed) {
+                return &fileEntry;
             }
         }
         // get the next irectory track/sector
@@ -448,6 +448,7 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
     int next_track;
     int next_sector;
     int allocated_sectors = 0;
+    auto bytes_left = static_cast<int>(fileData.size());
 
     // find and allocate 1st sector for file
     if (!findAndAllocateFreeSector(next_track, next_sector)) {
@@ -459,7 +460,7 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
     // save the start track and sector
     start_track = next_track;
     start_sector = next_sector;
-
+    auto tempdata = fileData;
     // loop until we write all the bytes of the file
     while (offset < sz) {
 
@@ -477,8 +478,8 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
         }
         else {
             // this is the last sector
-            next_track = 0;                               // mark as final sector
-            next_sector = static_cast<int>(sz) - offset;  // remaining bytes of file
+            next_track = 0;                         // mark as final sector
+            next_sector = bytes_left + 1;           // remaining bytes of file + 1
         }
 
         auto sectorPtr = getSectorPtr(track, sector);
@@ -486,10 +487,14 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
         sectorPtr->next.track = static_cast<uint8_t>(next_track);
         sectorPtr->next.sector = static_cast<uint8_t>(next_sector);
 
-        // write the file to the disk
-        for (auto byte = 0; byte < sizeof(sectorPtr->data); ++byte) {
-            sectorPtr->data[byte] = ((offset < sz) ? fileData[offset++] : 0);
-        }
+        // write the file to the disk       
+
+        auto len = std::min(static_cast<int>(sizeof(sectorPtr->data)), bytes_left);
+        auto fill = sizeof(sectorPtr->data) - len;
+        std::copy_n(tempdata.begin() + offset, len, sectorPtr->data.begin());
+        std::fill_n(sectorPtr->data.begin() + len, fill, 0);
+        bytes_left -= len;
+        offset += len;
     }
 
     // get a directory slot
@@ -575,12 +580,37 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
             int track = entry.start.track;
             int sector = entry.start.sector;
 
-            while (track != 0) {
-                sectorUsage[track - 1][sector] = true;
-                auto next = getTrackSectorPtr(track, sector);
+            sectorUsage[track - 1][sector] = true;
 
-                track = next->track;
-                sector = next->sector;
+            if (entry.file_type.type == d64::REL) {
+                // get the first location of a side sector
+                TrackSector sidePosition = entry.side;
+
+                // load the side sector 
+                SideSectorPtr side = getSideSectorPtr(sidePosition.track, sidePosition.sector);
+                for (auto side_sectors : side->side_sectors) {
+                    if (side_sectors.track == 0)
+                        break;
+
+                    side = getSideSectorPtr(side_sectors.track, side_sectors.sector);
+                    sectorUsage[side_sectors.track - 1][side_sectors.sector] = true;
+
+                    for (auto chainEntry : side->chain) {
+                        if (chainEntry.track == 0) {
+                            break;
+                        }
+                        sectorUsage[chainEntry.track - 1][chainEntry.sector] = true;
+                    }
+                }
+            }
+            else {
+                while (track != 0) {
+                    sectorUsage[track - 1][sector] = true;
+                    auto next = getTrackSectorPtr(track, sector);
+
+                    track = next->track;
+                    sector = next->sector;
+                }
             }
         }
 
@@ -1032,10 +1062,10 @@ bool d64::freeSector(const int& track, const int& sector)
     int byte = (sector / 8);
     int bit = sector % 8;
 
-    int val = bamtrack(track - 1)->bytes[byte];
+    std::bitset<sizeof(uint8_t) * 8> val(bamtrack(track - 1)->bytes[byte]);
 
     // check if sector is already free
-    if (val & (1 << bit)) {
+    if (val.test(bit)) {
         return false;
     }
 
@@ -1044,8 +1074,8 @@ bool d64::freeSector(const int& track, const int& sector)
     bamtrack(track - 1)->free++;
 
     // mark track sector as free
-    val |= (1 << bit);
-    bamtrack(track - 1)->bytes[byte] = val & 0xFF;
+    val.set(bit);
+    bamtrack(track - 1)->bytes[byte] = val.to_ulong() & 0xFF;
 
     return true;
 }
@@ -1068,17 +1098,17 @@ bool d64::allocateSector(const int& track, const int& sector)
     // is stored as a bitmap of 3 bytes. 1 if free and 0 if allocated
     int byte = (sector / 8);
     int bit = sector % 8;
-    int val = bamtrack(track - 1)->bytes[byte];
+ 
+    std::bitset<sizeof(uint8_t) * 8> val(bamtrack(track - 1)->bytes[byte]);
 
     // see if its already allocated
-    if ((val | (1 << bit)) == 0) {
+    if (! val.test(bit)) {
         return false;
     }
-
-    val &= ~(1 << bit);
-
-    bamtrack(track - 1)->free--;                    // decrement free sectors
-    bamtrack(track - 1)->bytes[byte] = val & 0xFF;  // mark track sector as used
+    
+    bamtrack(track - 1)->free--;                                // decrement free sectors
+    val.reset(bit);
+    bamtrack(track - 1)->bytes[byte] = val.to_ulong() & 0xFF;   // mark track sector as used
 
     return true;
 }
@@ -1107,10 +1137,11 @@ bool d64::findAndAllocateFreeOnTrack(int track, int& sector)
         int search_sector = (start_sector + i) % SECTORS_PER_TRACK[track - 1]; // Wrap around
         int byte = (search_sector / 8);
         int bit = search_sector % 8;
-        int val = bamtrack(track - 1)->bytes[byte];
+
+        std::bitset<sizeof(uint8_t) * 8> val(bamtrack(track - 1)->bytes[byte]);
 
         // see if sector is free
-        if (val & (1 << bit)) {
+        if (val.test(bit)) {
             allocateSector(track, search_sector);
             sector = search_sector;
             // update the last sector used for the track
@@ -1305,7 +1336,9 @@ bool d64::reorderDirectory(std::vector<Directory_Entry>& files)
 
         dir_track = dirSectorPtr->next.track;
         dir_sector = dirSectorPtr->next.sector;
-        if (dir_track != 0) dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
+        if (dir_track != 0) {
+            dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
+        }
     }
     return true;
 }
@@ -1340,17 +1373,14 @@ std::vector<d64::Directory_Entry> d64::directory()
 
     int dir_track = DIRECTORY_TRACK;
     int dir_sector = DIRECTORY_SECTOR;
-    Directory_SectorPtr dirSectorPtr;
 
     // Read all directory entries
     while (dir_track != 0) {
-        dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
-
-        for (int i = 0; i < FILES_PER_SECTOR; ++i) {
-            auto& entry = dirSectorPtr->fileEntry[i];
-            if ((entry.file_type.closed) == 0)
-                continue; // Skip deleted files
-            files.push_back(entry);
+        auto dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
+        for (auto& entry: dirSectorPtr->fileEntry) {
+            if (entry.file_type.closed) {
+                files.push_back(entry);
+            }
         }
 
         dir_track = dirSectorPtr->next.track;
@@ -1449,24 +1479,20 @@ std::optional<std::vector<uint8_t>> d64::readPRGFile(d64::Directory_EntryPtr fil
     int track = fileEntry->start.track;
     int sector = fileEntry->start.sector;
 
-    // track will be 0 at end of the file
     while (track != 0) {
 
         // get the next track and sector of file
-        auto offset = calcOffset(track, sector);
-        auto sectorPtr = reinterpret_cast<SectorPtr>(&data[offset]);
+        auto sectorPtr = getSectorPtr(track, sector);
 
         // see if we need to write the whole sector
         // if the track is not zero then write the whole block
         auto bytes = (sectorPtr->next.track != 0) ?
             sizeof(sectorPtr->data) :
-            static_cast<int>(sectorPtr->next.sector);
+            static_cast<int>(sectorPtr->next.sector) -1;
 
-        // copy the data
-        for (auto byte = 0; byte < bytes; ++byte) {
-            fileData.push_back(sectorPtr->data[byte]);
-        }
-
+        // append the data at the end 
+        fileData.insert(fileData.end(), sectorPtr->data.begin(), sectorPtr->data.begin() + bytes);
+        
         // set current track and sector
         track = sectorPtr->next.track;
         sector = sectorPtr->next.sector;
@@ -1523,6 +1549,10 @@ std::optional<std::vector<uint8_t>> d64::readRELFile(d64::Directory_EntryPtr fil
     return fileData;
 }
 
+/// <summary>
+/// print all directory sectors and entries
+/// </summary>
+/// <returns>string</returns>
 std::string d64::printDirectory()
 {
     std::string out;
@@ -1530,7 +1560,7 @@ std::string d64::printDirectory()
     auto dir_track = DIRECTORY_TRACK;
     auto dir_sector = DIRECTORY_SECTOR;
     while (dir_track != 0) {
-        Directory_SectorPtr dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
+        auto dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
 
         out += "Directory Entry TRACK " + std::to_string(dir_track) + " SECTOR " + std::to_string(dir_sector) + '\n' +
             "next\n" +

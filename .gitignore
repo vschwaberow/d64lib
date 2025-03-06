@@ -4,3 +4,7 @@
 
 /Win
 /Linux
+/unittests/testdsk.d64
+/unittests/testprog.prg
+*.d64
+*.prg
