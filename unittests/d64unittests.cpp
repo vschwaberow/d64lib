@@ -18,48 +18,67 @@ namespace d64lib_unit_test
     {
     }
 
-    TEST(d64lib_unit_test, sector_allocation_test)
+    void allocation_helper(d64* disk)
     {
-        d64 disk;
+        std::array<std::array<bool, 21>, TRACKS_40> sectorUsage = {}; // Max sectors per track
+        std::array<uint8_t, TRACKS_40> trackFreeUsage = {};
 
-        auto count = disk.getFreeSectorCount();
+        std::copy_n(disk->SECTORS_PER_TRACK.begin(), TRACKS_40, trackFreeUsage.begin());
+
+        sectorUsage[DIRECTORY_TRACK - 1][DIRECTORY_SECTOR] = true;
+        sectorUsage[DIRECTORY_TRACK - 1][BAM_SECTOR] = true;
+        trackFreeUsage[DIRECTORY_TRACK - 1] -= 2;
+        auto expected_free_sectors = disk->TRACKS == TRACKS_35 ?
+            (D64_DISK35_SZ / SECTOR_SIZE) - disk->SECTORS_PER_TRACK[DIRECTORY_TRACK - 1] :
+            (D64_DISK40_SZ / SECTOR_SIZE) - disk->SECTORS_PER_TRACK[DIRECTORY_TRACK - 1];
+
+        auto count = disk->getFreeSectorCount();
         std::vector< d64::TrackSector> allocations;
-
         for (auto allocation = 0; allocation < count; ++allocation) {
             int track, sector;
 
-            if (disk.findAndAllocateFreeSector(track, sector)) {
-                auto ts = d64::TrackSector(track, sector);
-                auto it = std::find(allocations.begin(), allocations.end(), ts);
-                auto expected = it == allocations.end();
-                if (!expected) {
-                    EXPECT_TRUE(expected);
+            if (disk->findAndAllocateFreeSector(track, sector)) {
+                if (track != DIRECTORY_TRACK) {
+                    --expected_free_sectors;
                 }
+                trackFreeUsage[track - 1] -= 1;
+                sectorUsage[track - 1][sector] = true;
+
+                count = disk->getFreeSectorCount();
+                EXPECT_EQ(count, expected_free_sectors);
+                for (auto track = 1; track <= disk->TRACKS; ++track) {
+                    EXPECT_EQ(trackFreeUsage[track - 1], disk->bamtrack(track - 1)->free);
+                    for (auto s = 0; s < disk->SECTORS_PER_TRACK[track - 1]; ++s) {
+                        EXPECT_NE(disk->bamtrack(track - 1)->test(s), sectorUsage[track - 1][s]);
+                    }
+                }
+
+                d64::TrackSector ts(track, sector);
+                auto it = std::find(allocations.begin(), allocations.end(), ts);
+                EXPECT_EQ(it, allocations.end());
                 allocations.push_back(ts);
             }
         }
     }
 
+    TEST(d64lib_unit_test, sector_allocation_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        allocation_helper(&disk);
+
+        d64lib_unit_test_method_cleanup();
+    }
+
     TEST(d64lib_unit_test, sector_allocation_40_test)
     {
+        d64lib_unit_test_method_initialize();
+
         d64 disk(d64::forty_track);
+        allocation_helper(&disk);
 
-        auto count = disk.getFreeSectorCount();
-        std::vector< d64::TrackSector> allocations;
-
-        for (auto allocation = 0; allocation < count; ++allocation) {
-            int track, sector;
-
-            if (disk.findAndAllocateFreeSector(track, sector)) {
-                auto ts = d64::TrackSector(track, sector);
-                auto it = std::find(allocations.begin(), allocations.end(), ts);
-                auto expected = it == allocations.end();
-                if (!expected) {
-                    EXPECT_TRUE(expected);
-                }
-                allocations.push_back(ts);
-            }
-        }
+        d64lib_unit_test_method_cleanup();
     }
 
     TEST(d64lib_unit_test, create_unit_test)
@@ -72,7 +91,8 @@ namespace d64lib_unit_test
         auto dir = disk.directory();
         EXPECT_TRUE(dir.size() == 0);
         EXPECT_TRUE(disk.verifyBAMIntegrity(false, ""));
-        EXPECT_EQ(disk.getFreeSectorCount(), 664);
+        EXPECT_EQ(disk.getFreeSectorCount(), (D64_DISK35_SZ / SECTOR_SIZE) - 
+            disk.SECTORS_PER_TRACK[DIRECTORY_TRACK -1]);
 
         d64lib_unit_test_method_cleanup();
     }
@@ -87,14 +107,17 @@ namespace d64lib_unit_test
         auto dir = disk.directory();
         EXPECT_TRUE(dir.size() == 0);
         EXPECT_TRUE(disk.verifyBAMIntegrity(false, ""));
-        EXPECT_EQ(disk.getFreeSectorCount(), 749);
+        EXPECT_EQ(disk.getFreeSectorCount(), (D64_DISK40_SZ / SECTOR_SIZE) - 
+            disk.SECTORS_PER_TRACK[DIRECTORY_TRACK - 1]);
 
         d64lib_unit_test_method_cleanup();
     }
 
     TEST(d64lib_unit_test, large_file_unit_test)
     {
-        const auto bigSize = 20000;
+        d64lib_unit_test_method_initialize();
+
+        const auto bigSize = 90000;
 
         std::vector<uint8_t> big_file(bigSize);
 
@@ -114,10 +137,13 @@ namespace d64lib_unit_test
                 EXPECT_TRUE(readfile.value()[i] == big_file[i]);
             }
         }
+        d64lib_unit_test_method_cleanup();
     }
 
     TEST(d64lib_unit_test, add_file_unit_test)
     {
+        d64lib_unit_test_method_initialize();
+
         std::vector<uint8_t> prog = {
 0x01, 0x08, 0x0f, 0x08, 0x0a, 0x00, 0x99, 0x20, 0x22, 0x48, 0x45, 0x4c, 0x4c, 0x4f, 0x22, 0x00,
 0x1b, 0x08, 0x14, 0x00, 0x81, 0x4b, 0xb2, 0x31, 0xa4, 0x31, 0x30, 0x00, 0x27, 0x08, 0x1e, 0x00,
@@ -143,10 +169,13 @@ namespace d64lib_unit_test
                 EXPECT_TRUE(readfile.value() == prog);
             }
         }
+        d64lib_unit_test_method_cleanup();
     }
 
     TEST(d64lib_unit_test, extract_file_unit_test)
     {
+        d64lib_unit_test_method_initialize();
+
         std::vector<uint8_t> prog = {
 0x01, 0x08, 0x15, 0x08, 0x0a, 0x00, 0x99, 0x20, 0x22, 0x48, 0x45, 0x4c, 0x4c, 0x4f, 0x20,
 0x57, 0x4f, 0x52, 0x4c, 0x44, 0x22, 0x00, 0x1b, 0x08, 0x14, 0x00, 0x80, 0x00, 0x00, 0x00
@@ -172,9 +201,7 @@ namespace d64lib_unit_test
             EXPECT_TRUE(extracted);
 
             std::remove((filename + ".prg").c_str());
-        }
-        
+        }        
+        d64lib_unit_test_method_cleanup();
     }
-
-
 }

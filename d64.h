@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <bitset>
 
 #pragma pack(push, 1)
 
@@ -81,7 +82,6 @@ public:
 
         TrackSector(int track, int sector) : track(track), sector(sector) {};
         TrackSector(uint8_t track, uint8_t sector) : track(track), sector(sector) {};
-
     };
 
     struct Sector {
@@ -128,8 +128,65 @@ public:
     };
 
     struct BAM_TRACK_ENTRY {
+    
+    public:
         uint8_t free;
-        std::array<uint8_t, 3> bytes;
+    
+    private:
+        std::array <uint8_t, 3> bytes;
+ 
+    public:
+        /// <summary>
+        /// test if a sector is used in bam  
+        /// </summary>
+        /// <param name="sector">sector to test</param>
+        bool test(int sector)
+        {
+            auto byte = sector / 8;
+            auto bit = sector % 8;
+
+            std::bitset<8> bits(bytes[byte]);
+            return bits.test(bit);
+        }
+
+        /// <summary>
+        /// mark a sector as free in bam  
+        /// </summary>
+        /// <param name="sector">sector to mark</param>
+        inline void set(int sector)
+        {
+            auto byte = sector / 8;
+            auto bit = sector % 8;
+            
+            std::bitset<8> bits(bytes[byte]);
+            bits.set(bit);
+            bytes[byte] = static_cast<uint8_t>(bits.to_ulong());
+        }
+
+        /// <summary>
+        /// mark a sector as used in bam  
+        /// </summary>
+        /// <param name="sector">sector to mark</param>
+        inline void reset(int sector)
+        {
+            auto byte = sector / 8;
+            auto bit = sector % 8;
+
+            std::bitset<8> bits(bytes[byte]);
+            bits.reset(bit);
+            bytes[byte] = static_cast<uint8_t>(bits.to_ulong());
+        }
+
+        /// <summary>
+        /// clear the bam sectors
+        /// this marks them all as in use
+        /// </summary>
+        inline void clear()
+        {
+            bytes[0] = 0;
+            bytes[1] = 0;
+            bytes[2] = 0;
+        }
     };
 
     // This folows DOLPHIN DOS for 40 tracks
@@ -200,7 +257,9 @@ public:
 
     inline BAM_TRACK_ENTRY* bamtrack(int t)
     {
-        return (t < TRACKS_35) ? &bamPtr->bam_track[(t)] : &bamPtr->bam_extra[((t)-TRACKS_35)];
+        return (t < TRACKS_35) ? 
+            &bamPtr->bam_track[(t)] : 
+            &bamPtr->bam_extra[((t)-TRACKS_35)];
     }
     inline SectorPtr getSectorPtr(uint8_t track, uint8_t sector)
     {
@@ -239,7 +298,12 @@ public:
     std::optional<std::vector<uint8_t>> readFile(std::string filename);
      
     uint16_t getFreeSectorCount();
-    BAMPtr getBAMPtr();
+
+    inline BAMPtr getBAMPtr() {
+        auto index = calcOffset(DIRECTORY_TRACK, BAM_SECTOR);
+        return reinterpret_cast<BAMPtr>(&data[index]);
+    }
+
     Directory_SectorPtr getDirectory_SectorPtr(const int& track, const int& sector);
     bool compactDirectory();
     bool verifyBAMIntegrity(bool fix, const std::string& logFile);
