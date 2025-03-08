@@ -332,7 +332,7 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
         if (!allocateSideSector(sideTrack, sideSector, side)) return false;
 
         // check for 1st side sector
-        if (sideSectorList.size() == 0) {
+        if (sideSectorList.empty()) {
             firstSide = side;
             fileEntry.value()->side.track = sideTrack;
             fileEntry.value()->side.sector = sideSector;
