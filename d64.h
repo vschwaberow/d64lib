@@ -280,6 +280,7 @@ public:
 
     std::optional<Directory_EntryPtr> findFile(std::string_view filename);
     bool addFile(std::string_view filename, FileType type, const std::vector<uint8_t>& fileData);
+    bool addRelFile_original(std::string_view filename, FileType type, uint8_t record_size, const std::vector<uint8_t>& fileData);
     bool addRelFile(std::string_view filename, FileType type, uint8_t record_size, const std::vector<uint8_t>& fileData);
     bool removeFile(std::string_view filename);
     bool renameFile(std::string_view oldfilename, std::string_view newfilename);
@@ -331,6 +332,12 @@ private:
     std::optional<d64::Directory_EntryPtr> findEmptyDirectorySlot();
     std::optional<std::vector<uint8_t>> readRELFile(d64::Directory_EntryPtr fileEntry);
     std::optional<std::vector<uint8_t>> readPRGFile(d64::Directory_EntryPtr fileEntry);
+
+    bool allocateSideSector(int& track, int& sector, SideSectorPtr& side);
+    bool allocateDataSector(int& track, int& sector, SectorPtr& sectorPtr);
+    void writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft);
+
+
 };
 
 #pragma pack(pop)

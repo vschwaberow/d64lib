@@ -15,7 +15,7 @@
 
 #include "d64.h"
 
-#pragma warning(disable:4267 28020)
+#pragma warning(disable:4267 28020 6011)
 
 /// <summary>
 /// constructor with no parameters
@@ -265,6 +265,33 @@ std::optional<d64::Directory_EntryPtr> d64::findEmptyDirectorySlot()
     return std::nullopt;
 }
 
+bool d64::allocateSideSector(int& track, int& sector, SideSectorPtr& side)
+{
+    if (!findAndAllocateFreeSector(track, sector)) return false;
+    side = getSideSectorPtr(track, sector);
+    memset(side, 0, SECTOR_SIZE);
+    return true;
+}
+
+bool d64::allocateDataSector(int& track, int& sector, SectorPtr& sectorPtr)
+{
+    if (!findAndAllocateFreeSector(track, sector)) return false;
+    sectorPtr = getSectorPtr(track, sector);
+    sectorPtr->next.track = 0;
+    sectorPtr->next.sector = 0;
+    return true;
+}
+
+void d64::writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft)
+{
+    int len = std::min(static_cast<int>(sizeof(sectorPtr->data)), bytesLeft);
+    std::copy_n(fileData.begin() + offset, len, sectorPtr->data.begin());
+    std::fill_n(sectorPtr->data.begin() + len, sizeof(sectorPtr->data) - len, 0);
+    bytesLeft -= len;
+    offset += len;
+    if (bytesLeft == 0) sectorPtr->next.sector = len + 1; // Mark final sector
+}
+
 /// <summary>
 /// Add a .rel file to the disk
 /// </summary>
@@ -275,153 +302,80 @@ std::optional<d64::Directory_EntryPtr> d64::findEmptyDirectorySlot()
 /// <returns>true if successful</returns>
 bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_size, const std::vector<uint8_t>& fileData)
 {
-    auto allocated_sectors = 0;
-    uint8_t block = 0;
-    auto offset = 0;
-    auto bytes_left = static_cast<int>(fileData.size());
+    if (record_size >= SECTOR_SIZE - sizeof(TrackSector)) return false;
 
-    // allocate directory entry
     auto fileEntry = findEmptyDirectorySlot();
-    if (!fileEntry.has_value()) {
-        return false;
-    }
+    if (!fileEntry.has_value()) return false;
+    memset(fileEntry.value(), 0, sizeof(Directory_Entry));
 
-    // zero out the directory entry
-    memset(fileEntry.value(), 0, sizeof(d64::Directory_Entry));
-
-    // file type
-    fileEntry.value()->file_type = d64::FileTypes::REL;
-
-    // set the name of the file
+    // Initialize directory entry
+    fileEntry.value()->file_type = FileTypes::REL;
     auto len = std::min(filename.size(), static_cast<size_t>(FILE_NAME_SZ));
     std::copy_n(filename.begin(), len, fileEntry.value()->file_name);
     std::fill(fileEntry.value()->file_name + len, fileEntry.value()->file_name + DISK_NAME_SZ, static_cast<char>(A0_VALUE));
 
-    // record size;
     fileEntry.value()->record_length = record_size;
 
     int sideTrack, sideSector;
 
-    // allocate 1st side sector
-    if (!findAndAllocateFreeSector(sideTrack, sideSector)) {
-        std::cerr << "Disk full. Can't add " << filename << "\n";
-        fileEntry.value()->file_type.closed = 0;
-        return false;
-    }
+    SideSectorPtr firstSide{};
 
-    auto first_side = getSideSectorPtr(sideTrack, sideSector);
+    std::vector<SideSectorPtr> sideSectorList;
+    std::vector<SectorPtr> dataSectorList;
 
-    // count the allocated sector
-    allocated_sectors++;
+    int bytesLeft = fileData.size(), offset = 0;
+    uint8_t block = 0;
+    int sideCount = 0;
 
-    // fill in the file entry
-    fileEntry.value()->side.track = sideTrack;
-    fileEntry.value()->side.sector = sideSector;
+    while (bytesLeft > 0 && sideCount < SIDE_SECTOR_ENTRY_SIZE) {
+        SideSectorPtr side;
+        if (!allocateSideSector(sideTrack, sideSector, side)) return false;
 
-    const int MAX_SIDE_SECTORS = 6;
+        // check for 1st side sector
+        if (sideSectorList.size() == 0) {
+            firstSide = side;
+            fileEntry.value()->side.track = sideTrack;
+            fileEntry.value()->side.sector = sideSector;
+            firstSide->next.sector = 16;    // offset to chain
+        }
+        sideSectorList.push_back(side);
 
-    auto side_count = 0;
-    std::vector<SideSectorPtr> side_sector_list;
-    std::vector<SectorPtr> data_sector_list;
+        firstSide->side_sectors[sideCount++] = { sideTrack, sideSector };
 
-    // main loop
-    while (bytes_left > 0 && side_count < MAX_SIDE_SECTORS) {
-
-        // get a side sector
-        auto side = getSideSectorPtr(sideTrack, sideSector);
-        memset(side, 0, SECTOR_SIZE);
-
-        // save the side sectorptr so we can fix it up at the end
-        side_sector_list.push_back(side);
-
-        // put this in the first side sector to save it
-        first_side->side_sectors[side_count].track = sideTrack;
-        first_side->side_sectors[side_count].sector = sideSector;
-        ++side_count;
-
-        // set next to 0
-        side->next.track = 0;
-        side->next.sector = 16;
-
-        // set recors size
-        side->recordsize = record_size;
-
-        // set the block number
+            side->recordsize = record_size;
         side->block = block++;
 
-        // loop through the chain of the side sector
         for (auto& chain : side->chain) {
-            
-            // find a free spot on the chain
             if (chain.track == 0) {
-                
-                // Allocate a data data sector for file
-                int data_track, data_sector;
-                if (!findAndAllocateFreeSector(data_track, data_sector)) {
-                    std::cerr << "Disk full. Can't add " << filename << "\n";
-                    fileEntry.value()->file_type.closed = 0;
-                    return false;
+                int dataTrack, dataSector;
+                SectorPtr sectorPtr;
+                if (!allocateDataSector(dataTrack, dataSector, sectorPtr)) return false;
+
+                if (fileEntry.value()->start.track == 0) {
+                    fileEntry.value()->start.track = dataTrack;
+                    fileEntry.value()->start.sector = dataSector;
                 }
-                // add to size of side sector
-                side->next.sector += sizeof(TrackSector);
-                allocated_sectors++;
-                chain.track = data_track;
-                chain.sector = data_sector;
-
-                if (data_sector_list.size() > 0) {
-                    auto last_data = data_sector_list[data_sector_list.size() - 1];
-                    last_data->next.track = data_track;
-                    last_data->next.sector = data_sector;
+                chain = { dataTrack, dataSector };
+                if (!dataSectorList.empty()) {
+                    auto last = dataSectorList[dataSectorList.size() - 1];
+                    last->next.track = dataTrack;
+                    last->next.sector = dataSector;
                 }
-                else {
-                    fileEntry.value()->start.track = data_track;
-                    fileEntry.value()->start.sector = data_sector;
-                }
+                dataSectorList.push_back(sectorPtr);
+                writeDataToSector(sectorPtr, fileData, offset, bytesLeft);
+                firstSide->next.sector += sizeof(TrackSector);
 
-                // get sector to contain data
-                auto sectorPtr = getSectorPtr(data_track, data_sector);
-                sectorPtr->next.track = 0;
-                sectorPtr->next.sector = 0;
-                data_sector_list.push_back(sectorPtr);
-
-                // write the data
-                auto len = std::min(static_cast<int>(sizeof(sectorPtr->data)), bytes_left);
-                auto fill = sizeof(sectorPtr->data) - len;
-                std::copy_n(fileData.begin() + offset, len, sectorPtr->data.begin());
-                std::fill_n(sectorPtr->data.begin() + len, fill, 0);
-                bytes_left -= len;
-                offset += len;
-
-                if (bytes_left == 0) {
-                    sectorPtr->next.sector = len + 1;
-                    // set size of file
-                    fileEntry.value()->file_size[0] = allocated_sectors & 0xFF;
-                    fileEntry.value()->file_size[1] = (allocated_sectors & 0xFF00) >> 8;
-
-                    // update the side sector list
-                    for (auto& ss : side_sector_list) {
-                        for (auto i = 0; i < side_count; ++i) {
-                            ss->side_sectors[i].track = first_side->side_sectors[i].track;
-                            ss->side_sectors[i].sector = first_side->side_sectors[i].sector;
-                        }
-                    }
+                if (bytesLeft == 0) {
+                    fileEntry.value()->file_size[0] = dataSectorList.size() & 0xFF;
+                    fileEntry.value()->file_size[1] = (dataSectorList.size() & 0xFF00) >> 8;
                     return true;
                 }
             }
         }
-        if (bytes_left > 0) {
-            // we need to allocate another side sector
-            if (!findAndAllocateFreeSector(sideTrack, sideSector)) {
-                std::cerr << "Disk full. Can't add " << filename << "\n";
-                fileEntry.value()->file_type.closed = 0;
-                return false;
-            }
-            // set the previous side sector next to point to the new side sector
-            side->next.track = sideTrack;
-            side->next.sector = sideSector;
 
-            // count the allocated sector
-            allocated_sectors++;
+        if (bytesLeft > 0) {
+            if (!allocateSideSector(sideTrack, sideSector, side)) return false;
+            sideSectorList.back()->next = { sideTrack, sideSector };
         }
     }
 
@@ -1137,6 +1091,7 @@ bool d64::findAndAllocateFreeSector(int& track, int& sector)
             return true;
         }
     }
+
     return false;
 }
 

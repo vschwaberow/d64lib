@@ -115,6 +115,7 @@ namespace d64lib_unit_test
 
     TEST(d64lib_unit_test, relfile_test)
     {
+        d64lib_unit_test_method_initialize();
         std::vector<uint8_t> rel_file;
 
         for (auto record = 0; record < 200; ++record) {
@@ -132,6 +133,9 @@ namespace d64lib_unit_test
         d64 disk;
         auto added = disk.addRelFile("BIGREL", d64::FileTypes::REL, 64,  rel_file);
         EXPECT_TRUE(added);
+        disk.save("myrefileBUG.d64");
+
+        d64lib_unit_test_method_cleanup();
     }
 
     TEST(d64lib_unit_test, large_file_unit_test)
