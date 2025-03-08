@@ -238,7 +238,7 @@ std::optional<d64::Directory_EntryPtr> d64::findEmptyDirectorySlot()
                 return &fileEntry;
             }
         }
-        // get the next irectory track/sector
+        // get the next directory track/sector
         dir_track = dirSectorPtr->next.track;
         dir_sector = dirSectorPtr->next.sector;
 
@@ -277,8 +277,8 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
 {
     auto allocated_sectors = 0;
     uint8_t block = 0;
-    auto file_pos = 0;
-    auto done = false;
+    auto offset = 0;
+    auto bytes_left = static_cast<int>(fileData.size());
 
     // allocate directory entry
     auto fileEntry = findEmptyDirectorySlot();
@@ -317,16 +317,15 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
     // fill in the file entry
     fileEntry.value()->side.track = sideTrack;
     fileEntry.value()->side.sector = sideSector;
-    fileEntry.value()->start.track = sideTrack;
-    fileEntry.value()->start.sector = sideSector;
 
     const int MAX_SIDE_SECTORS = 6;
 
     auto side_count = 0;
     std::vector<SideSectorPtr> side_sector_list;
+    std::vector<SectorPtr> data_sector_list;
 
     // main loop
-    while (!done && side_count < MAX_SIDE_SECTORS) {
+    while (bytes_left > 0 && side_count < MAX_SIDE_SECTORS) {
 
         // get a side sector
         auto side = getSideSectorPtr(sideTrack, sideSector);
@@ -337,11 +336,12 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
 
         // put this in the first side sector to save it
         first_side->side_sectors[side_count].track = sideTrack;
-        first_side->side_sectors[side_count].track = sideTrack;
+        first_side->side_sectors[side_count].sector = sideSector;
+        ++side_count;
 
         // set next to 0
         side->next.track = 0;
-        side->next.sector = 0;
+        side->next.sector = 16;
 
         // set recors size
         side->recordsize = record_size;
@@ -350,43 +350,50 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
         side->block = block++;
 
         // loop through the chain of the side sector
-        for (auto i = 0; !done && i < SIDE_SECTOR_CHAIN_SZ; ++i) {
-            if (side->chain[i].track == 0 && side->chain[i].sector == 0) {
-
-                // found a spot on the chain
+        for (auto& chain : side->chain) {
+            
+            // find a free spot on the chain
+            if (chain.track == 0) {
+                
+                // Allocate a data data sector for file
                 int data_track, data_sector;
                 if (!findAndAllocateFreeSector(data_track, data_sector)) {
                     std::cerr << "Disk full. Can't add " << filename << "\n";
                     fileEntry.value()->file_type.closed = 0;
                     return false;
                 }
+                // add to size of side sector
+                side->next.sector += sizeof(TrackSector);
                 allocated_sectors++;
-                side->chain[i].track = data_track;
-                side->chain[i].sector = data_sector;
+                chain.track = data_track;
+                chain.sector = data_sector;
 
-                // not sure but point previous data next to new data
-                if (i > 0) {
-                    auto nextptr = getTrackSectorPtr(side->chain[i - 1].track, side->chain[i - 1].sector);
-                    nextptr->track = data_track;
-                    nextptr->sector = data_sector;
+                if (data_sector_list.size() > 0) {
+                    auto last_data = data_sector_list[data_sector_list.size() - 1];
+                    last_data->next.track = data_track;
+                    last_data->next.sector = data_sector;
+                }
+                else {
+                    fileEntry.value()->start.track = data_track;
+                    fileEntry.value()->start.sector = data_sector;
                 }
 
+                // get sector to contain data
                 auto sectorPtr = getSectorPtr(data_track, data_sector);
                 sectorPtr->next.track = 0;
                 sectorPtr->next.sector = 0;
+                data_sector_list.push_back(sectorPtr);
 
                 // write the data
-                for (auto b = 0; b < sizeof(sectorPtr->data); ++b) {
-                    if (file_pos < fileData.size()) {
-                        sectorPtr->data[b] = fileData[file_pos++];
-                    }
-                    else {
-                        done = true;
-                        sectorPtr->data[b] = 0;
-                    }
-                }
+                auto len = std::min(static_cast<int>(sizeof(sectorPtr->data)), bytes_left);
+                auto fill = sizeof(sectorPtr->data) - len;
+                std::copy_n(fileData.begin() + offset, len, sectorPtr->data.begin());
+                std::fill_n(sectorPtr->data.begin() + len, fill, 0);
+                bytes_left -= len;
+                offset += len;
 
-                if (done) {
+                if (bytes_left == 0) {
+                    sectorPtr->next.sector = len + 1;
                     // set size of file
                     fileEntry.value()->file_size[0] = allocated_sectors & 0xFF;
                     fileEntry.value()->file_size[1] = (allocated_sectors & 0xFF00) >> 8;
@@ -398,10 +405,11 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
                             ss->side_sectors[i].sector = first_side->side_sectors[i].sector;
                         }
                     }
+                    return true;
                 }
             }
         }
-        if (!done) {
+        if (bytes_left > 0) {
             // we need to allocate another side sector
             if (!findAndAllocateFreeSector(sideTrack, sideSector)) {
                 std::cerr << "Disk full. Can't add " << filename << "\n";
@@ -801,21 +809,17 @@ std::optional<d64::Directory_EntryPtr> d64::findFile(std::string_view filename)
     while (dir_track != 0) {
         // get a pointer to current dirctory sector
         auto dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
-
-        // get the 1st file entry
-        auto fileEntry = &(dirSectorPtr->fileEntry[0]);
-
-        // loop through the 8 file entries
-        for (int file_entry = 1; file_entry <= 8; ++file_entry, ++fileEntry) {
+        // get the file entry
+        for (auto& fileEntry: dirSectorPtr->fileEntry) {
             // see if the file is allocated
-            if ((fileEntry->file_type.closed) == 0) {
+            if ((fileEntry.file_type.closed) == 0) {
                 continue;
             }
             // Extract and trim the file name
-            std::string entryName(fileEntry->file_name, FILE_NAME_SZ);
+            std::string entryName(fileEntry.file_name, FILE_NAME_SZ);
             entryName.erase(std::find_if(entryName.begin(), entryName.end(), [](char c) { return c == static_cast<char>(A0_VALUE); }), entryName.end());
             if (entryName == filename) {
-                return fileEntry;
+                return &fileEntry;
             }
         }
         // get the next directory track and sector

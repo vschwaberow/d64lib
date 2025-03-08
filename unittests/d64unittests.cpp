@@ -113,6 +113,27 @@ namespace d64lib_unit_test
         d64lib_unit_test_method_cleanup();
     }
 
+    TEST(d64lib_unit_test, relfile_test)
+    {
+        std::vector<uint8_t> rel_file;
+
+        for (auto record = 0; record < 200; ++record) {
+            std::string rec = "RECORD " + std::to_string(record);
+            
+            while (rec.length() < 64) {
+                rec += (char)0;
+            }
+
+            for (auto& ch : rec) {
+                rel_file.push_back(static_cast<uint8_t>(ch));
+            }
+        }
+
+        d64 disk;
+        auto added = disk.addRelFile("BIGREL", d64::FileTypes::REL, 64,  rel_file);
+        EXPECT_TRUE(added);
+    }
+
     TEST(d64lib_unit_test, large_file_unit_test)
     {
         d64lib_unit_test_method_initialize();
@@ -120,13 +141,11 @@ namespace d64lib_unit_test
         const auto bigSize = 90000;
 
         std::vector<uint8_t> big_file(bigSize);
-
         for (auto i = 0; i < bigSize; ++i) {
             big_file[i] = i % 256;
         }
 
         d64 disk;
-
         auto added = disk.addFile("BIG", d64::FileTypes::SEQ, big_file);
         EXPECT_TRUE(added);
 
