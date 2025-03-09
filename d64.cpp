@@ -14,7 +14,6 @@
 #include <bitset>
 
 #include "d64.h"
-#include <cassert>
 
 #pragma warning(disable:4267 28020 6011)
 
@@ -100,7 +99,7 @@ void d64::initBAM(std::string_view name)
     initializeBAMFields(name);
 
     // Mark all sectors free
-    for (int t = 0; t < TRACKS; ++t) {
+    for (auto t = 0; t < TRACKS; ++t) {
         auto bam = bamtrack(t);
         bam->free = SECTORS_PER_TRACK[t];
         bam->clear();
@@ -158,13 +157,7 @@ void d64::formatDisk(std::string_view name)
 bool d64::writeSector(int track, int sector, std::vector<uint8_t> bytes)
 {
     if (bytes.size() != SECTOR_SIZE) return false;
-
-    auto index = calcOffset(track, sector);
-    if (index >= 0) {
-        std::copy_n(bytes.begin(), SECTOR_SIZE, data.begin() + index);
-        return true;
-    }
-    return false;
+    return writeData(track, sector, bytes, 0);
 }
 
 /// <summary>
@@ -177,12 +170,7 @@ bool d64::writeSector(int track, int sector, std::vector<uint8_t> bytes)
 /// <returns>true on success</returns>
 bool d64::writeByte(int track, int sector, int byteoffset, uint8_t value)
 {
-    auto offset = calcOffset(track, sector) + byteoffset;
-    if (offset >= 0 && offset < data.size()) {
-        data[offset] = value;
-        return true;
-    }
-    return false;
+    return writeData(track, sector, { value }, byteoffset);
 }
 
 /// <summary>
@@ -244,10 +232,8 @@ std::optional<d64::Directory_EntryPtr> d64::findEmptyDirectorySlot()
         dir_sector = dirSectorPtr->next.sector;
 
         // check if there is another allocated directory sector if so go to it
-        if (dir_track > 0 && dir_track <= TRACKS && dir_sector >= 0 && dir_sector < SECTORS_PER_TRACK[dir_track - 1]) {
-            continue;
-        }
-        else {
+        if (dir_track == 0 || dir_track > TRACKS || dir_sector < 0 || dir_sector > SECTORS_PER_TRACK[dir_track - 1]) {
+
             if (!findAndAllocateFreeSector(dir_track, dir_sector)) {
                 std::cerr << "Disk full. Unable to find directoy slot\n";
                 return std::nullopt;
@@ -527,15 +513,15 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
         }
     }
 
-    // Temporary map to count sector usage
+    // Temp map to count sector usage
     std::array<std::array<bool, 21>, TRACKS_40> sectorUsage = {}; // Max sectors per track
 
     // **Step 1: Mark BAM itself as used**
     sectorUsage[DIRECTORY_TRACK - 1][BAM_SECTOR] = true;
 
     // **Step 2: Scan directory for used sectors**
-    int dir_track = DIRECTORY_TRACK;
-    int dir_sector = DIRECTORY_SECTOR;
+    auto dir_track = DIRECTORY_TRACK;
+    auto dir_sector = DIRECTORY_SECTOR;
     Directory_SectorPtr dirSectorPtr;
 
     while (dir_track != 0) {
@@ -591,10 +577,10 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
     // **Step 3: Compare BAM against actual usage**
     auto errorsFound = false;
 
-    for (int track = 1; track <= TRACKS; ++track) {
-        int correctFreeCount = 0;
+    for (auto track = 1; track <= TRACKS; ++track) {
+        auto correctFreeCount = 0;
 
-        for (int sector = 0; sector < SECTORS_PER_TRACK[track - 1]; ++sector) {
+        for (auto sector = 0; sector < SECTORS_PER_TRACK[track - 1]; ++sector) {
             auto isFreeInBAM = bamtrack(track - 1)->test(sector);
             auto isUsedInDirectory = sectorUsage[track - 1][sector];
 
@@ -725,7 +711,7 @@ bool d64::compactDirectory()
     while (dir_track != 0) {
         std::fill_n(reinterpret_cast<uint8_t*>(dirSectorPtr), SECTOR_SIZE, 0); // Clear sector
 
-        for (int i = 0; i < FILES_PER_SECTOR && index < files.size(); ++i, ++index) {
+        for (auto i = 0; i < FILES_PER_SECTOR && index < files.size(); ++i, ++index) {
             dirSectorPtr->fileEntry[i] = files[index];
         }
 
@@ -821,7 +807,7 @@ bool d64::removeFile(std::string_view filename)
     int track = fileEntry.value()->start.track;
     int sector = fileEntry.value()->start.sector;
 
-    // now follow the next track sector of the fiule
+    // now follow the next track sector of the file
     while (track != 0) {
         auto sectorPtr = getTrackSectorPtr(track, sector);
         auto next_track = sectorPtr->track;
@@ -966,10 +952,8 @@ bool d64::load(std::string filename)
     auto pos = inFile.tellg();
   
     inFile.seekg(0, std::ios::beg);
-
     if (pos != D64_DISK35_SZ && pos != D64_DISK40_SZ) {
-        std::cerr << "Error: Invalid disk size.\n";
-        return false;
+        throw std::invalid_argument("Invalid disk size");
     }
     disktype = (pos == D64_DISK35_SZ) ? thirty_five_track : forty_track; 
   
@@ -1239,7 +1223,7 @@ bool d64::reorderDirectory(std::vector<Directory_Entry>& files)
     while (dir_track != 0 && index < files.size()) {
         std::fill_n(reinterpret_cast<uint8_t*>(dirSectorPtr), SECTOR_SIZE, 0); // Clear sector
 
-        for (int i = 0; i < FILES_PER_SECTOR && index < files.size(); ++i, ++index) {
+        for (auto i = 0; i < FILES_PER_SECTOR && index < files.size(); ++i, ++index) {
             dirSectorPtr->fileEntry[i] = files[index];
         }
 
@@ -1399,6 +1383,17 @@ std::optional<std::vector<uint8_t>> d64::readPRGFile(d64::Directory_EntryPtr fil
 
     // exit
     return fileData;
+}
+
+bool d64::writeData(int track, int sector, std::vector<uint8_t> bytes, int byteoffset = 0)
+{
+    if (bytes.size() != SECTOR_SIZE) return false;
+    auto index = calcOffset(track, sector);
+    if (index >= 0) {
+        std::copy_n(bytes.begin() + byteoffset, SECTOR_SIZE, data.begin() + index);
+        return true;
+    }
+    return false;
 }
 
 /// <summary>
