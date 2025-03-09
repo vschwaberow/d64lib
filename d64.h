@@ -322,7 +322,7 @@ private:
     bool validateD64();
     void initBAM(std::string_view name);
     void initializeBAMFields(std::string_view name);
-    bool writeData(int track, int sector, std::vector<uint8_t> bytes, int byteoffset = 0);
+    bool writeData(int track, int sector, std::vector<uint8_t> bytes, int byteoffset);
     std::vector<d64::TrackSector> parseSideSectors(int sideTrack, int sideSector);
     BAMPtr bamPtr;
     BAM_TRACK_ENTRY* bamTrackPtr;
