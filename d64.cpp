@@ -14,6 +14,7 @@
 #include <bitset>
 
 #include "d64.h"
+#include <cassert>
 
 #pragma warning(disable:4267 28020 6011)
 
@@ -289,7 +290,10 @@ void d64::writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fil
     std::fill_n(sectorPtr->data.begin() + len, sizeof(sectorPtr->data) - len, 0);
     bytesLeft -= len;
     offset += len;
-    if (bytesLeft == 0) sectorPtr->next.sector = len + 1; // Mark final sector
+    if (bytesLeft == 0) {
+        sectorPtr->next.track = 0;          // Mark final track
+        sectorPtr->next.sector = len + 1;   // Mark final sector
+    }
 }
 
 /// <summary>
@@ -357,9 +361,8 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
                 }
                 chain = { dataTrack, dataSector };
                 if (!dataSectorList.empty()) {
-                    auto last = dataSectorList[dataSectorList.size() - 1];
-                    last->next.track = dataTrack;
-                    last->next.sector = dataSector;
+                    dataSectorList.back()->next.track = dataTrack;
+                    dataSectorList.back()->next.sector = dataSector;
                 }
                 dataSectorList.push_back(sectorPtr);
                 writeDataToSector(sectorPtr, fileData, offset, bytesLeft);
@@ -382,6 +385,13 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
     return true;
 }
 
+/// <summary>
+/// Add a file to the disk
+/// </summary>
+/// <param name="filename">file to load</param>
+/// <param name="type">file type</param>
+/// <param name="fileData">data to the file</param>
+/// <returns>true if successful</returns>
 /// <summary>
 /// Add a file to the disk
 /// </summary>
@@ -1397,8 +1407,9 @@ std::optional<std::vector<uint8_t>> d64::readPRGFile(d64::Directory_EntryPtr fil
         // if the track is not zero then write the whole block
         auto bytes = (sectorPtr->next.track != 0) ?
             sizeof(sectorPtr->data) :
-            static_cast<int>(sectorPtr->next.sector) -1;
-
+            static_cast<int>(sectorPtr->next.sector);
+        if (bytes < sizeof(sectorPtr->data) && bytes > 0)
+            --bytes;
         // append the data at the end 
         fileData.insert(fileData.end(), sectorPtr->data.begin(), sectorPtr->data.begin() + bytes);
         
@@ -1429,6 +1440,7 @@ std::optional<std::vector<uint8_t>> d64::readRELFile(d64::Directory_EntryPtr fil
     int sideTrack = fileEntry->side.track;
     int sideSector = fileEntry->side.sector;
     int recordLength = fileEntry->record_length;
+    int offset = 0;
 
     if (recordLength == 0) {
         std::cerr << "Error: Invalid REL file structure.\n";
@@ -1448,13 +1460,13 @@ std::optional<std::vector<uint8_t>> d64::readRELFile(d64::Directory_EntryPtr fil
     // Extract records in order
     for (auto& rec : recordMap) {
         auto sectorPtr = getSectorPtr(rec.track, rec.sector);
-        for (auto byte = 0; byte < recordLength; ++byte) {
-            fileData.push_back(sectorPtr->data[byte]);
-        }
-        std::cout << "Extracted record from Track " << rec.track << ", Sector " << rec.sector << "\n";
+
+        int bytes = sectorPtr->next.track != 0 ? sizeof(sectorPtr->data) : sectorPtr->next.sector -1;
+        fileData.insert(fileData.end(), sectorPtr->data.begin(), sectorPtr->data.begin() + bytes);
+        std::cout << "Extracted  " << bytes << " of data from Track " << rec.track << ", Sector " << rec.sector << "\n";
     }
 
-    std::cout << "REL file extracted: " << ".rel\n";
+    std::cout << "REL file extracted" << fileData.size() << " bytes. :" << Trim(fileEntry->file_name) << ".rel\n";
     return fileData;
 }
 

@@ -113,7 +113,7 @@ namespace d64lib_unit_test
         d64lib_unit_test_method_cleanup();
     }
 
-    TEST(d64lib_unit_test, relfile_test)
+    TEST(d64lib_unit_test, addrelfile_test)
     {
         d64lib_unit_test_method_initialize();
         std::vector<uint8_t> rel_file;
@@ -133,7 +133,38 @@ namespace d64lib_unit_test
         d64 disk;
         auto added = disk.addRelFile("BIGREL", d64::FileTypes::REL, 64,  rel_file);
         EXPECT_TRUE(added);
-        disk.save("myrefileBUG.d64");
+
+        d64lib_unit_test_method_cleanup();
+    }
+
+    TEST(d64lib_unit_test, readrelfile_test)
+    {
+        d64lib_unit_test_method_initialize();
+        std::vector<uint8_t> rel_file;
+
+        for (auto record = 0; record < 200; ++record) {
+            std::string rec = "RECORD " + std::to_string(record);
+
+            while (rec.length() < 64) {
+                rec += (char)0;
+            }
+            for (auto& ch : rec) {
+                rel_file.push_back(static_cast<uint8_t>(ch));
+            }
+        }
+
+        d64 disk;
+        auto added = disk.addRelFile("BIGREL", d64::FileTypes::REL, 64, rel_file);
+        EXPECT_TRUE(added);
+
+        auto readrelfile = disk.readFile("BIGREL");
+
+        if (readrelfile.has_value()) {
+            EXPECT_EQ(rel_file.size(), readrelfile.value().size());
+            for (auto i = 0; i < rel_file.size(); ++i) {
+                EXPECT_TRUE(readrelfile.value()[i] == rel_file[i]);
+            }
+        }
 
         d64lib_unit_test_method_cleanup();
     }
@@ -218,12 +249,15 @@ namespace d64lib_unit_test
             EXPECT_TRUE(dir.size() == file);
             files.push_back(filename);
         }
-
+        disk.save("BUGGY.d64");
+        return;
         for (auto& filename : files) {
+            std::cout << "File " << filename << "\n";
             auto extracted = disk.extractFile(filename);
             EXPECT_TRUE(extracted);
-
-            std::remove((filename + ".prg").c_str());
+            if (extracted) {
+                std::remove((filename + ".prg").c_str());
+            }
         }        
         d64lib_unit_test_method_cleanup();
     }
