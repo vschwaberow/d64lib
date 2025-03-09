@@ -13,7 +13,6 @@
 
 const int TRACKS_35 = 35;
 const int TRACKS_40 = 40;
-const int BAM_XTRA = TRACKS_40 - TRACKS_35;
 const int SECTOR_SIZE = 256;
 const int DISK_NAME_SZ = 16;
 const int FILE_NAME_SZ = 16;
@@ -23,7 +22,6 @@ const int DIR_ENTRY_SZ = 30;
 const int DIRECTORY_TRACK = 18;
 const int DIRECTORY_SECTOR = 1;
 const int TRACK_SECTOR = 0;
-const int SECTOR_SECTOR = 1;
 const int BAM_SECTOR = 0;
 const int FILES_PER_SECTOR = 8;
 
@@ -201,10 +199,7 @@ public:
         uint8_t unused2;                        // $A4          contains A0
         char dos_type[2];                       // $A5 - $A6    '2' 'A'
         uint8_t unused3[UNUSED3_SZ];            // $A7 - $AB    00
-        union {
-            BAM_TRACK_ENTRY bam_extra[BAM_XTRA];// Tracks 36 - 40 BAM
-            uint8_t unused4[UNUSED4_SZ];        // $AC - $FF    00
-        };
+        uint8_t unused4[UNUSED4_SZ];            // $AC - $FF    00
     };
     typedef struct BAM* BAMPtr;
 
@@ -258,8 +253,8 @@ public:
     inline BAM_TRACK_ENTRY* bamtrack(int t)
     {
         return (t < TRACKS_35) ? 
-            &bamPtr->bam_track[(t)] : 
-            &bamPtr->bam_extra[((t)-TRACKS_35)];
+            &bamTrackPtr[(t)] : 
+            &bamExtraTrackPtr[((t)-TRACKS_35)];
     }
     inline SectorPtr getSectorPtr(uint8_t track, uint8_t sector)
     {
@@ -299,9 +294,11 @@ public:
      
     uint16_t getFreeSectorCount();
 
-    inline BAMPtr getBAMPtr() {
+    inline void initBAMPtr() {
         auto index = calcOffset(DIRECTORY_TRACK, BAM_SECTOR);
-        return reinterpret_cast<BAMPtr>(&data[index]);
+        bamPtr = reinterpret_cast<BAMPtr>(&data[index]);
+        bamTrackPtr = &(bamPtr->bam_track[0]);
+        bamExtraTrackPtr = reinterpret_cast<BAM_TRACK_ENTRY*>( &data[index + 0xAC]);
     }
 
     Directory_SectorPtr getDirectory_SectorPtr(const int& track, const int& sector);
@@ -314,7 +311,6 @@ public:
     bool lockfile(std::string file, bool lock);
     std::vector<Directory_Entry> directory();
     static std::string Trim(const char filename[FILE_NAME_SZ]);
-    std::string printDirectory();
 
 private:
     static constexpr int INTERLEAVE = 10;
@@ -325,6 +321,8 @@ private:
     void initializeBAMFields(std::string_view name);
     std::vector<d64::TrackSector> parseSideSectors(int sideTrack, int sideSector);
     BAMPtr bamPtr;
+    BAM_TRACK_ENTRY* bamTrackPtr;
+    BAM_TRACK_ENTRY* bamExtraTrackPtr;
     diskType disktype = thirty_five_track;
     void init_disk();
     bool findAndAllocateFreeOnTrack(int t, int& sector);

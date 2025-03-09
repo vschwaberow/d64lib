@@ -93,7 +93,7 @@ inline int d64::calcOffset(int track, int sector) const
 void d64::initBAM(std::string_view name)
 {
     // set the BAM pointer
-    bamPtr = getBAMPtr();
+    initBAMPtr();
 
     // initialize the BAM fields
     // bamPtr must already be set!
@@ -266,6 +266,13 @@ std::optional<d64::Directory_EntryPtr> d64::findEmptyDirectorySlot()
     return std::nullopt;
 }
 
+/// <summary>
+/// Allocate a side sector for .REL file
+/// </summary>
+/// <param name="track">track number</param>
+/// <param name="sector">sector numbe</param>
+/// <param name="side">pointer to SideSector</param>
+/// <returns>true on success</returns>
 bool d64::allocateSideSector(int& track, int& sector, SideSectorPtr& side)
 {
     if (!findAndAllocateFreeSector(track, sector)) return false;
@@ -274,6 +281,13 @@ bool d64::allocateSideSector(int& track, int& sector, SideSectorPtr& side)
     return true;
 }
 
+/// <summary>
+/// Allocate a data sector for .REL file
+/// </summary>
+/// <param name="track">track number</param>
+/// <param name="sector">sector number</param>
+/// <param name="sectorPtr">pointer to Sector</param>
+/// <returns>true on success</returns>
 bool d64::allocateDataSector(int& track, int& sector, SectorPtr& sectorPtr)
 {
     if (!findAndAllocateFreeSector(track, sector)) return false;
@@ -283,6 +297,13 @@ bool d64::allocateDataSector(int& track, int& sector, SectorPtr& sectorPtr)
     return true;
 }
 
+/// <summary>
+/// Write data to a sector
+/// </summary>
+/// <param name="sectorPtr">pointer to sector to write to</param>
+/// <param name="fileData">data to write</param>
+/// <param name="offset">offset of data</param>
+/// <param name="bytesLeft">number of bytes left to write</param>
 void d64::writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft)
 {
     int len = std::min(static_cast<int>(sizeof(sectorPtr->data)), bytesLeft);
@@ -321,7 +342,6 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
     fileEntry.value()->record_length = record_size;
 
     int sideTrack, sideSector;
-
     SideSectorPtr firstSide{};
 
     std::vector<SideSectorPtr> sideSectorList;
@@ -346,7 +366,7 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
 
         firstSide->side_sectors[sideCount++] = { sideTrack, sideSector };
 
-            side->recordsize = record_size;
+        side->recordsize = record_size;
         side->block = block++;
 
         for (auto& chain : side->chain) {
@@ -393,12 +413,6 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
 /// <param name="fileData">data to the file</param>
 /// <returns>true if successful</returns>
 /// <summary>
-/// Add a file to the disk
-/// </summary>
-/// <param name="filename">file to load</param>
-/// <param name="type">file type</param>
-/// <param name="fileData">data to the file</param>
-/// <returns>true if successful</returns>
 bool d64::addFile(std::string_view filename, FileType type, const std::vector<uint8_t>& fileData)
 {
     // Find free sectors using BAM
@@ -412,7 +426,7 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
     int next_track;
     int next_sector;
     int allocated_sectors = 0;
-    auto bytes_left = static_cast<int>(fileData.size());
+    auto bytesLeft = static_cast<int>(fileData.size());
 
     // find and allocate 1st sector for file
     if (!findAndAllocateFreeSector(next_track, next_sector)) {
@@ -443,7 +457,7 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
         else {
             // this is the last sector
             next_track = 0;                         // mark as final sector
-            next_sector = bytes_left + 1;           // remaining bytes of file + 1
+            next_sector = bytesLeft + 1;            // remaining bytes of file + 1
         }
 
         auto sectorPtr = getSectorPtr(track, sector);
@@ -452,13 +466,7 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
         sectorPtr->next.sector = static_cast<uint8_t>(next_sector);
 
         // write the file to the disk       
-
-        auto len = std::min(static_cast<int>(sizeof(sectorPtr->data)), bytes_left);
-        auto fill = sizeof(sectorPtr->data) - len;
-        std::copy_n(tempdata.begin() + offset, len, sectorPtr->data.begin());
-        std::fill_n(sectorPtr->data.begin() + len, fill, 0);
-        bytes_left -= len;
-        offset += len;
+        writeDataToSector(sectorPtr, fileData, offset, bytesLeft);
     }
 
     // get a directory slot
@@ -542,7 +550,6 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
 
             int track = entry.start.track;
             int sector = entry.start.sector;
-
             sectorUsage[track - 1][sector] = true;
 
             if (entry.file_type.type == d64::REL) {
@@ -957,19 +964,15 @@ bool d64::load(std::string filename)
     }
     inFile.seekg(0, std::ios::end);
     auto pos = inFile.tellg();
+  
     inFile.seekg(0, std::ios::beg);
-    if (pos == D64_DISK35_SZ) {
-        disktype = thirty_five_track;
-    }
-    else if (pos == D64_DISK40_SZ) {
-        disktype = forty_track;
-    }
-    else {
-        inFile.close();
-        std::cerr << "Error: Invalid disk " << filename << "\n";
+
+    if (pos != D64_DISK35_SZ && pos != D64_DISK40_SZ) {
+        std::cerr << "Error: Invalid disk size.\n";
         return false;
     }
-
+    disktype = (pos == D64_DISK35_SZ) ? thirty_five_track : forty_track; 
+  
     // allocate the disk
     init_disk();
 
@@ -1448,49 +1451,4 @@ std::optional<std::vector<uint8_t>> d64::readRELFile(d64::Directory_EntryPtr fil
     }
 
     return fileData;
-}
-
-/// <summary>
-/// print all directory sectors and entries
-/// </summary>
-/// <returns>string</returns>
-std::string d64::printDirectory()
-{
-    std::string out;
-
-    auto dir_track = DIRECTORY_TRACK;
-    auto dir_sector = DIRECTORY_SECTOR;
-    while (dir_track != 0) {
-        auto dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
-
-        out += "Directory Entry TRACK " + std::to_string(dir_track) + " SECTOR " + std::to_string(dir_sector) + '\n' +
-            "next\n" +
-            "    Track  " + std::to_string(dirSectorPtr->next.track) + '\n' +
-            "    Sector " + std::to_string(dirSectorPtr->next.sector) + '\n';
-
-        for (auto file_entry_index = 1; file_entry_index <= FILES_PER_SECTOR; ++file_entry_index) {
-            auto fileEntry = &(dirSectorPtr->fileEntry[file_entry_index - 1]);
-            out += std::string("\nFILE ENTRY\n") +
-                "    filetype   " + std::to_string((uint8_t)fileEntry->file_type) + '\n' +
-                "    start\n" +
-                "        Track  " + std::to_string(fileEntry->start.track) + '\n' +
-                "        Sector " + std::to_string(fileEntry->start.sector) + '\n' +
-                "    fileName " + Trim(fileEntry->file_name) + '\n' +
-                "    side\n" +
-                "        Track  " + std::to_string(fileEntry->side.track) + '\n' +
-                "        Sector " + std::to_string(fileEntry->side.sector) + '\n' +
-                "    replace\n" +
-                "        Track  " + std::to_string(fileEntry->replace.track) + '\n' +
-                "        Sector " + std::to_string(fileEntry->replace.sector) + '\n' +
-                "    record_length " + std::to_string(fileEntry->record_length) + '\n' +
-                "    unused " +
-                std::to_string(fileEntry->unused[0]) + ' ' + std::to_string(fileEntry->unused[1]) + ' ' +
-                std::to_string(fileEntry->unused[2]) + ' ' + std::to_string(fileEntry->unused[3]) + '\n' +
-                "    filesize " + std::to_string((int)fileEntry->file_size[0] + ((int)fileEntry->file_size[1] * 256)) + '\n';
-        }
-
-        dir_track = dirSectorPtr->next.track;
-        dir_sector = dirSectorPtr->next.sector;
-    }
-    return out;
 }
