@@ -1,3 +1,4 @@
+// Written by Paul Baxter
 #include <gtest/gtest.h>
 #include <string>
 
@@ -16,6 +17,13 @@ namespace d64lib_unit_test
 
     static void d64lib_unit_test_method_cleanup()
     {
+    }
+
+    std::string getPaddingString(std::string const& str, int n)
+    {
+        std::ostringstream oss;
+        oss << std::left << std::setw(n) << str;
+        return oss.str();
     }
 
     void allocation_helper(d64* disk)
@@ -61,6 +69,7 @@ namespace d64lib_unit_test
         }
     }
 
+
     TEST(d64lib_unit_test, sector_allocation_test)
     {
         d64lib_unit_test_method_initialize();
@@ -71,6 +80,7 @@ namespace d64lib_unit_test
         d64lib_unit_test_method_cleanup();
     }
 
+
     TEST(d64lib_unit_test, sector_allocation_40_test)
     {
         d64lib_unit_test_method_initialize();
@@ -80,6 +90,7 @@ namespace d64lib_unit_test
 
         d64lib_unit_test_method_cleanup();
     }
+
 
     TEST(d64lib_unit_test, create_unit_test)
     {
@@ -97,6 +108,7 @@ namespace d64lib_unit_test
         d64lib_unit_test_method_cleanup();
     }
 
+
     TEST(d64lib_unit_test, create_40_unit_test)
     {
         d64lib_unit_test_method_initialize();
@@ -113,25 +125,21 @@ namespace d64lib_unit_test
         d64lib_unit_test_method_cleanup();
     }
 
+
     TEST(d64lib_unit_test, addrelfile_test)
     {
         d64lib_unit_test_method_initialize();
+        constexpr int RECORD_SIZE = 64;
+        constexpr int NUM_RECORDS = 200;
+
         std::vector<uint8_t> rel_file;
-
-        for (auto record = 0; record < 200; ++record) {
-            std::string rec = "RECORD " + std::to_string(record);
-            
-            while (rec.length() < 64) {
-                rec += (char)0;
-            }
-
-            for (auto& ch : rec) {
-                rel_file.push_back(static_cast<uint8_t>(ch));
-            }
+        for (auto record = 0; record < NUM_RECORDS; ++record) {
+            std::string rec =  getPaddingString(std::string("RECORD ") + std::to_string(record + 1), RECORD_SIZE);
+            rel_file.insert(rel_file.end(), rec.begin(), rec.end());
         }
 
         d64 disk;
-        auto added = disk.addRelFile("BIGREL", d64::FileTypes::REL, 64,  rel_file);
+        auto added = disk.addRelFile("RELFILE", d64::FileTypes::REL, RECORD_SIZE,  rel_file);
         EXPECT_TRUE(added);
 
         d64lib_unit_test_method_cleanup();
@@ -140,30 +148,24 @@ namespace d64lib_unit_test
     TEST(d64lib_unit_test, readrelfile_test)
     {
         d64lib_unit_test_method_initialize();
+        constexpr int RECORD_SIZE = 64;
+        constexpr int NUM_RECORDS = 200;
+
         std::vector<uint8_t> rel_file;
-
-        for (auto record = 0; record < 200; ++record) {
-            std::string rec = "RECORD " + std::to_string(record);
-
-            while (rec.length() < 64) {
-                rec += (char)0;
-            }
-            for (auto& ch : rec) {
-                rel_file.push_back(static_cast<uint8_t>(ch));
-            }
+        for (auto record = 0; record < NUM_RECORDS; ++record) {
+            std::string rec = getPaddingString(std::string("RECORD ") + std::to_string(record + 1), RECORD_SIZE);
+            rel_file.insert(rel_file.end(), rec.begin(), rec.end());
         }
 
         d64 disk;
-        auto added = disk.addRelFile("BIGREL", d64::FileTypes::REL, 64, rel_file);
+        auto added = disk.addRelFile("RELFILE", d64::FileTypes::REL, 64, rel_file);
         EXPECT_TRUE(added);
 
-        auto readrelfile = disk.readFile("BIGREL");
+        auto readrelfile = disk.readFile("RELFILE");
 
+        EXPECT_TRUE(readrelfile.has_value());
         if (readrelfile.has_value()) {
-            EXPECT_EQ(rel_file.size(), readrelfile.value().size());
-            for (auto i = 0; i < rel_file.size(); ++i) {
-                EXPECT_TRUE(readrelfile.value()[i] == rel_file[i]);
-            }
+            EXPECT_EQ(rel_file, readrelfile.value());
         }
 
         d64lib_unit_test_method_cleanup();
@@ -193,6 +195,7 @@ namespace d64lib_unit_test
         }
         d64lib_unit_test_method_cleanup();
     }
+
 
     TEST(d64lib_unit_test, add_file_unit_test)
     {
@@ -226,6 +229,7 @@ namespace d64lib_unit_test
         d64lib_unit_test_method_cleanup();
     }
 
+
     TEST(d64lib_unit_test, extract_file_unit_test)
     {
         d64lib_unit_test_method_initialize();
@@ -249,8 +253,7 @@ namespace d64lib_unit_test
             EXPECT_TRUE(dir.size() == file);
             files.push_back(filename);
         }
-        disk.save("BUGGY.d64");
-        return;
+
         for (auto& filename : files) {
             std::cout << "File " << filename << "\n";
             auto extracted = disk.extractFile(filename);

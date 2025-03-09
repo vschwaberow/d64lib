@@ -1348,11 +1348,9 @@ std::vector<d64::TrackSector> d64::parseSideSectors(int sideTrack, int sideSecto
 {
     std::vector<TrackSector> recordMap; // Store TrackSector
 
+    // sideTrack 0 signifies end
     while (sideTrack != 0) {
         auto sideSectorPtr = getSideSectorPtr(sideTrack, sideSector);
-
-        std::cout << "Reading side sector at Track " << sideSectorPtr->next.track <<
-            ", Sector " << sideSectorPtr->next.sector << "\n";
 
         // Get Next side-sector location
         uint8_t nextTrack = sideSectorPtr->next.track;
@@ -1360,11 +1358,9 @@ std::vector<d64::TrackSector> d64::parseSideSectors(int sideTrack, int sideSecto
 
         // Block number
         uint8_t block = sideSectorPtr->block;
-        std::cout << "Block " << (int)sideSectorPtr->block << "\n";
 
         // Record size
         uint8_t recordSize = sideSectorPtr->recordsize;
-        std::cout << "Record size: " << (int)recordSize << " bytes\n";
 
         // Read record-to-sector mappings
         for (auto i = 0; i < SIDE_SECTOR_CHAIN_SZ; ++i) {
@@ -1372,8 +1368,6 @@ std::vector<d64::TrackSector> d64::parseSideSectors(int sideTrack, int sideSecto
                 break;  // End of records
 
             recordMap.emplace_back(sideSectorPtr->chain[i]);
-            std::cout << "Record maps to Track " << (int)sideSectorPtr->chain[i].track << ", Sector "
-                << (int)sideSectorPtr->chain[i].sector << "\n";
         }
 
         // Move to next side sector
@@ -1398,18 +1392,14 @@ std::optional<std::vector<uint8_t>> d64::readPRGFile(d64::Directory_EntryPtr fil
     int track = fileEntry->start.track;
     int sector = fileEntry->start.sector;
 
+    // track 0 signifies end
     while (track != 0) {
 
         // get the next track and sector of file
         auto sectorPtr = getSectorPtr(track, sector);
 
-        // see if we need to write the whole sector
         // if the track is not zero then write the whole block
-        auto bytes = (sectorPtr->next.track != 0) ?
-            sizeof(sectorPtr->data) :
-            static_cast<int>(sectorPtr->next.sector);
-        if (bytes < sizeof(sectorPtr->data) && bytes > 0)
-            --bytes;
+        int bytes = sectorPtr->next.track != 0 ? sizeof(sectorPtr->data) : sectorPtr->next.sector - 1;
         // append the data at the end 
         fileData.insert(fileData.end(), sectorPtr->data.begin(), sectorPtr->data.begin() + bytes);
         
@@ -1434,9 +1424,6 @@ std::optional<std::vector<uint8_t>> d64::readRELFile(d64::Directory_EntryPtr fil
         return std::nullopt;
     }
 
-    // Get initial track/sector & record length
-    int track = fileEntry->start.track;
-    int sector = fileEntry->start.sector;
     int sideTrack = fileEntry->side.track;
     int sideSector = fileEntry->side.sector;
     int recordLength = fileEntry->record_length;
@@ -1449,11 +1436,6 @@ std::optional<std::vector<uint8_t>> d64::readRELFile(d64::Directory_EntryPtr fil
 
     std::vector<uint8_t> fileData;
 
-    std::cout << "Extracting REL file: " << "\n";
-    std::cout << "Main data starts at Track " << track << ", Sector " << sector << "\n";
-    std::cout << "Side sector chain starts at Track " << sideTrack << ", Sector " << sideSector << "\n";
-    std::cout << "Record length: " << recordLength << " bytes\n";
-
     // Get the record-to-sector mapping
     std::vector<TrackSector> recordMap = parseSideSectors(sideTrack, sideSector);
 
@@ -1463,10 +1445,8 @@ std::optional<std::vector<uint8_t>> d64::readRELFile(d64::Directory_EntryPtr fil
 
         int bytes = sectorPtr->next.track != 0 ? sizeof(sectorPtr->data) : sectorPtr->next.sector -1;
         fileData.insert(fileData.end(), sectorPtr->data.begin(), sectorPtr->data.begin() + bytes);
-        std::cout << "Extracted  " << bytes << " of data from Track " << rec.track << ", Sector " << rec.sector << "\n";
     }
 
-    std::cout << "REL file extracted" << fileData.size() << " bytes. :" << Trim(fileEntry->file_name) << ".rel\n";
     return fileData;
 }
 
