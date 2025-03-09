@@ -1109,19 +1109,6 @@ bool d64::findAndAllocateFreeSector(int& track, int& sector)
 }
 
 /// <summary>
-/// Get a pointer the the directory at a given sector
-/// </summary>
-/// <param name="track">track number</param>
-/// <param name="sector">sector number</param>
-/// <returns>pointer to directory</returns>
-inline d64::Directory_SectorPtr d64::getDirectory_SectorPtr(const int& track, const int& sector)
-{
-    // calculate data offset
-    auto index = calcOffset(track, sector);
-    return reinterpret_cast<Directory_SectorPtr>(&data[index]);
-}
-
-/// <summary>
 /// Get the number of free sectors
 /// </summary>
 /// <returns>number of free sectors</returns>
@@ -1299,11 +1286,10 @@ std::vector<d64::Directory_Entry> d64::directory()
     // Read all directory entries
     while (dir_track != 0) {
         auto dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
-        for (auto& entry: dirSectorPtr->fileEntry) {
-            if (entry.file_type.closed) {
-                files.push_back(entry);
-            }
-        }
+
+        std::copy_if(dirSectorPtr->fileEntry,
+            dirSectorPtr->fileEntry + FILES_PER_SECTOR,
+            std::back_inserter(files), [&](auto& entry) { return entry.file_type.closed; });
 
         dir_track = dirSectorPtr->next.track;
         dir_sector = dirSectorPtr->next.sector;

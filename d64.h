@@ -268,6 +268,12 @@ public:
     {
         return reinterpret_cast<SideSectorPtr>(&data[calcOffset(track, sector)]);
     }
+    inline Directory_SectorPtr getDirectory_SectorPtr(const int& track, const int& sector)
+    {
+        return reinterpret_cast<Directory_SectorPtr>(&data[calcOffset(track, sector)]);
+    }
+
+
 
     void formatDisk(std::string_view name);
     bool rename_disk(std::string_view name) const;
@@ -301,7 +307,6 @@ public:
         bamExtraTrackPtr = reinterpret_cast<BAM_TRACK_ENTRY*>( &data[index + 0xAC]);
     }
 
-    Directory_SectorPtr getDirectory_SectorPtr(const int& track, const int& sector);
     bool compactDirectory();
     bool verifyBAMIntegrity(bool fix, const std::string& logFile);
     bool reorderDirectory(std::function<bool(const Directory_Entry&, const Directory_Entry&)> compare);
