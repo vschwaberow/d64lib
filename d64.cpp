@@ -212,7 +212,7 @@ std::optional<std::vector<uint8_t>> d64::readSector(int track, int sector)
 /// This will create a new directory sector if needed
 /// </summary>
 /// <returns>optional Directory_EntryPtr to free slot</returns>
-std::optional<d64::Directory_EntryPtr> d64::findEmptyDirectorySlot()
+std::optional<Directory_EntryPtr> d64::findEmptyDirectorySlot()
 {
     auto dir_track = DIRECTORY_TRACK;
     auto dir_sector = DIRECTORY_SECTOR;
@@ -563,7 +563,7 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
             int sector = entry.start.sector;
             sectorUsage[track - 1][sector] = true;
 
-            if (entry.file_type.type == d64::REL) {
+            if (entry.file_type.type == FileTypes::REL) {
                 // get the first location of a side sector
                 TrackSector sidePosition = entry.side;
 
@@ -781,7 +781,7 @@ bool d64::compactDirectory()
 /// </summary>
 /// <param name="filename">file to find</param>
 /// <returns>optional pointer to the fiels directory entry</returns>
-std::optional<d64::Directory_EntryPtr> d64::findFile(std::string_view filename)
+std::optional<Directory_EntryPtr> d64::findFile(std::string_view filename)
 {
     // set thE initial directory track and sector
     auto dir_track = DIRECTORY_TRACK;
@@ -1027,7 +1027,12 @@ bool d64::freeSector(const int& track, const int& sector)
     return true;
 }
 
-
+/// <summary>
+/// Check the validity of the track and sector number
+/// </summary>
+/// <param name="track">track number to check</param>
+/// <param name="sector">sector number to check</param>
+/// <returns>true if valid</returns>
 bool d64::isValidTrackSector(int track, int sector) const
 {
     return track >= 1 && track <= TRACKS && sector >= 0 && sector < SECTORS_PER_TRACK[track - 1];
@@ -1282,7 +1287,7 @@ bool d64::reorderDirectory(std::function<bool(const Directory_Entry&, const Dire
 /// return the current directory entries
 /// </summary>
 /// <returns>current directory entries</returns>
-std::vector<d64::Directory_Entry> d64::directory()
+std::vector<Directory_Entry> d64::directory()
 {
     std::vector<Directory_Entry> files;
 
@@ -1336,7 +1341,7 @@ bool d64::validateD64()
 /// <param name="sideTrack">side track</param>
 /// <param name="sideSector">side sector</param>
 /// <returns>true if successful</returns>
-std::vector<d64::TrackSector> d64::parseSideSectors(int sideTrack, int sideSector)
+std::vector<TrackSector> d64::parseSideSectors(int sideTrack, int sideSector)
 {
     std::vector<TrackSector> recordMap; // Store TrackSector
 
@@ -1375,7 +1380,7 @@ std::vector<d64::TrackSector> d64::parseSideSectors(int sideTrack, int sideSecto
 /// </summary>
 /// <param name="filename">file to extract</param>
 /// <returns>true on sucess</returns>
-std::optional<std::vector<uint8_t>> d64::readPRGFile(d64::Directory_EntryPtr fileEntry)
+std::optional<std::vector<uint8_t>> d64::readPRGFile(Directory_EntryPtr fileEntry)
 {
     // the file data will be stored here
     std::vector<uint8_t> fileData;
@@ -1420,7 +1425,7 @@ bool d64::writeData(int track, int sector, std::vector<uint8_t> bytes, int byteo
 /// </summary>
 /// <param name="filename">.rel file to read</param>
 /// <returns>true on sucess</returns>
-std::optional<std::vector<uint8_t>> d64::readRELFile(d64::Directory_EntryPtr fileEntry)
+std::optional<std::vector<uint8_t>> d64::readRELFile(Directory_EntryPtr fileEntry)
 {
     if (fileEntry->file_type.type != FileTypes::REL) {
         throw std::runtime_error("Error: file is not a REL file");

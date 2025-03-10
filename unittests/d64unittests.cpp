@@ -41,7 +41,7 @@ namespace d64lib_unit_test
             (D64_DISK40_SZ / SECTOR_SIZE) - disk->SECTORS_PER_TRACK[DIRECTORY_TRACK - 1];
 
         auto count = disk->getFreeSectorCount();
-        std::vector< d64::TrackSector> allocations;
+        std::vector<TrackSector> allocations;
         for (auto allocation = 0; allocation < count; ++allocation) {
             int track, sector;
 
@@ -61,7 +61,7 @@ namespace d64lib_unit_test
                     }
                 }
 
-                d64::TrackSector ts(track, sector);
+                TrackSector ts(track, sector);
                 auto it = std::find(allocations.begin(), allocations.end(), ts);
                 EXPECT_EQ(it, allocations.end());
                 allocations.push_back(ts);
@@ -85,7 +85,7 @@ namespace d64lib_unit_test
     {
         d64lib_unit_test_method_initialize();
 
-        d64 disk(d64::forty_track);
+        d64 disk(diskType::forty_track);
         allocation_helper(&disk);
 
         d64lib_unit_test_method_cleanup();
@@ -113,7 +113,7 @@ namespace d64lib_unit_test
     {
         d64lib_unit_test_method_initialize();
 
-        d64 disk(d64::forty_track);
+        d64 disk(diskType::forty_track);
         EXPECT_STREQ(disk.diskname().c_str(), "NEW DISK");
         EXPECT_EQ(disk.TRACKS, TRACKS_40);
         auto dir = disk.directory();
@@ -139,7 +139,7 @@ namespace d64lib_unit_test
         }
 
         d64 disk;
-        auto added = disk.addRelFile("RELFILE", d64::FileTypes::REL, RECORD_SIZE,  rel_file);
+        auto added = disk.addRelFile("RELFILE", FileTypes::REL, RECORD_SIZE,  rel_file);
         EXPECT_TRUE(added);
 
         d64lib_unit_test_method_cleanup();
@@ -158,7 +158,7 @@ namespace d64lib_unit_test
         }
 
         d64 disk;
-        auto added = disk.addRelFile("RELFILE", d64::FileTypes::REL, 64, rel_file);
+        auto added = disk.addRelFile("RELFILE", FileTypes::REL, 64, rel_file);
         EXPECT_TRUE(added);
 
         auto readrelfile = disk.readFile("RELFILE");
@@ -183,7 +183,7 @@ namespace d64lib_unit_test
         }
 
         d64 disk;
-        auto added = disk.addFile("BIG", d64::FileTypes::SEQ, big_file);
+        auto added = disk.addFile("BIG", FileTypes::SEQ, big_file);
         EXPECT_TRUE(added);
 
         auto readfile = disk.readFile("BIG");
@@ -215,7 +215,7 @@ namespace d64lib_unit_test
 
             std::string filename = "FILE";
             filename += numpart;
-            auto added = disk.addFile(filename, d64::FileTypes::PRG, prog);
+            auto added = disk.addFile(filename, FileTypes::PRG, prog);
             EXPECT_TRUE(added);
             auto dir = disk.directory();
             EXPECT_TRUE(dir.size() == file);
@@ -247,7 +247,7 @@ namespace d64lib_unit_test
 
             std::string filename = "FILE";
             filename += numpart;
-            auto added = disk.addFile(filename, d64::FileTypes::PRG, prog);
+            auto added = disk.addFile(filename, FileTypes::PRG, prog);
             EXPECT_TRUE(added);
             auto dir = disk.directory();
             EXPECT_TRUE(dir.size() == file);

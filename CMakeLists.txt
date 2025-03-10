@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 add_subdirectory(unittests)
 
 # Add library
-add_library(d64lib d64.cpp d64.h)
+add_library(d64lib d64.cpp d64.h d64_types.h)
 
 # Export the include directory
 target_include_directories(d64lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
