@@ -251,8 +251,6 @@ public:
     };
     typedef struct Directory_Sector* Directory_SectorPtr;
 
-
-
     inline BAM_TRACK_ENTRY* bamtrack(int t)
     {
         return (t < TRACKS_35) ?
@@ -301,13 +299,6 @@ public:
 
     uint16_t getFreeSectorCount();
 
-    inline void initBAMPtr()
-    {
-        auto index = calcOffset(DIRECTORY_TRACK, BAM_SECTOR);
-        bamPtr = reinterpret_cast<BAMPtr>(&data[index]);
-        bamTrackPtr = &(bamPtr->bam_track[0]);
-        bamExtraTrackPtr = reinterpret_cast<BAM_TRACK_ENTRY*>(&data[index + 0xAC]);
-    }
 
     bool compactDirectory();
     bool verifyBAMIntegrity(bool fix, const std::string& logFile);
@@ -344,6 +335,15 @@ private:
     int writeFileDataToSectors(int start_track, int start_sector, const std::vector<uint8_t>& fileData);
     bool createDirectoryEntry(std::string_view filename, FileType type, int start_track, int start_sector, int allocated_sectors);
     bool findAndAllocateFirstSector(int& start_track, int& start_sector, std::string_view filename);
+    inline void initBAMPtr()
+    {
+        auto index = calcOffset(DIRECTORY_TRACK, BAM_SECTOR);
+        bamPtr = reinterpret_cast<BAMPtr>(&data[index]);
+        bamTrackPtr = &(bamPtr->bam_track[0]);
+        bamExtraTrackPtr = reinterpret_cast<BAM_TRACK_ENTRY*>(&data[index + 0xAC]);
+    }
+    bool isValidTrackSector(int track, int sector) const;
+
 };
 
 #pragma pack(pop)

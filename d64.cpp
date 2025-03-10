@@ -77,9 +77,8 @@ void d64::init_disk()
 // NOTE: track starts at 1. returns offset int datafor track and sector
 inline int d64::calcOffset(int track, int sector) const
 {
-    if (track < 1 || track > TRACKS || sector < 0 || sector > SECTORS_PER_TRACK[track - 1]) {
-        std::cerr << "Invalid Tack and Sector TRACK:" << track << " SECTOR:" << sector << std::endl;
-        return -1;
+    if (!isValidTrackSector(track, sector)) {
+        throw std::runtime_error("Invalid Tack and Sector TRACK:" + std::to_string(track) + " SECTOR:" + std::to_string(sector));
     }
     return TRACK_OFFSETS[track - 1] + sector * SECTOR_SIZE;
 }
@@ -235,8 +234,7 @@ std::optional<d64::Directory_EntryPtr> d64::findEmptyDirectorySlot()
         if (dir_track == 0 || dir_track > TRACKS || dir_sector < 0 || dir_sector > SECTORS_PER_TRACK[dir_track - 1]) {
 
             if (!findAndAllocateFreeSector(dir_track, dir_sector)) {
-                std::cerr << "Disk full. Unable to find directoy slot\n";
-                return std::nullopt;
+                throw std::runtime_error("Disk full. Unable to find directoy slot");
             }
             dirSectorPtr->next.track = dir_track;
             dirSectorPtr->next.sector = dir_sector;
@@ -403,8 +401,7 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
 {
     // Validate inputs
     if (filename.empty() || fileData.empty()) {
-        std::cerr << "Error: Filename or file data cannot be empty.\n";
-        return false;
+        throw std::runtime_error("Error: Filename or file data cannot be empty");
     }
 
     // Find and allocate the first sector for the file
@@ -437,8 +434,7 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
 bool d64::findAndAllocateFirstSector(int& start_track, int& start_sector, std::string_view filename)
 {
     if (!findAndAllocateFreeSector(start_track, start_sector)) {
-        std::cerr << "Disk full. Unable to add " << filename << "\n";
-        return false;
+        throw std::runtime_error("Disk full. Unable to add " + std::string(filename));
     }
     return true;
 }
@@ -465,8 +461,7 @@ int d64::writeFileDataToSectors(int start_track, int start_sector, const std::ve
 
         if (fileData.size() - offset > (SECTOR_SIZE - 2)) {
             if (!findAndAllocateFreeSector(next_track, next_sector)) {
-                std::cerr << "Disk full. Unable to add file data.\n";
-                return 0;
+                throw std::runtime_error("Disk full. Unable to add file data");
             }
             allocated_sectors++;
         }
@@ -829,8 +824,7 @@ bool d64::removeFile(std::string_view filename)
     auto fileEntry = findFile(filename);
     // return false if we cant find it
     if (!fileEntry.has_value()) {
-        std::cerr << "File not found: " << filename << std::endl;
-        return false;
+        throw std::runtime_error("File not found: " + std::string(filename));
     }
     // Free all file sectors
     // get the start track and sector
@@ -863,8 +857,7 @@ bool d64::renameFile(std::string_view oldfilename, std::string_view newfilename)
     // see if we can find the file
     auto fileEntry = findFile(oldfilename);
     if (!fileEntry.has_value()) {
-        std::cerr << "File not found: " << oldfilename << std::endl;
-        return false;
+        throw std::runtime_error("File not found: " + std::string(oldfilename));
     }
     // padd the name with A0 and limit length to FILE_NAME_SZ
     auto len = std::min(newfilename.size(), static_cast<size_t>(FILE_NAME_SZ));
@@ -883,7 +876,7 @@ bool d64::extractFile(std::string filename)
     // find the file
     auto fileEntry = findFile(filename);
     if (!fileEntry.has_value()) {
-        std::cerr << "File not found: " << filename << std::endl;
+        throw std::runtime_error("File not found: " + std::string(filename));
         return false;
     }
 
@@ -895,13 +888,12 @@ bool d64::extractFile(std::string filename)
     };
     auto it = extMap.find(fileEntry.value()->file_type.type);
     if (it == extMap.end()) {
-        std::cerr << "Unknown file type: " << static_cast<uint8_t>(fileEntry.value()->file_type) << std::endl;
-        return false;
+        throw std::runtime_error("Unknown file type: " + std::to_string(static_cast<uint8_t>(fileEntry.value()->file_type)));
     }
 
     auto fileData = readFile(filename);
     if (!fileData.has_value()) {
-        std::cerr << "Unable to read file." << filename << std::endl;
+        throw std::runtime_error("Unable to read file " + filename);
         return false;
     }
 
@@ -923,8 +915,7 @@ std::optional<std::vector<uint8_t>> d64::readFile(std::string filename)
     // find the file
     auto fileEntry = findFile(filename);
     if (!fileEntry.has_value()) {
-        std::cerr << "File not found: " << filename << std::endl;
-        return std::nullopt;
+        throw std::runtime_error("File not found: " + filename);
     }
     if (fileEntry.value()->file_type.type == FileTypes::REL) {
         return readRELFile(fileEntry.value());
@@ -956,8 +947,7 @@ bool d64::save(std::string filename)
     // open the file
     std::ofstream outFile(filename.c_str(), std::ios::binary);
     if (!outFile) {
-        std::cerr << "Error: Could not open file for writing.\n";
-        return false;
+        throw std::runtime_error("Error: Could not open file for writing");
     }
     // write all the data
     outFile.write(reinterpret_cast<char*>(data.data()), data.size());
@@ -975,8 +965,7 @@ bool d64::load(std::string filename)
     // open the file
     std::ifstream inFile(filename, std::ios::binary);
     if (!inFile) {
-        std::cerr << "Error: Could not open disk file " << filename << " for reading.\n";
-        return false;
+        throw std::runtime_error("Error: Could not open disk file " + filename + " for reading");
     }
     inFile.seekg(0, std::ios::end);
     auto pos = inFile.tellg();
@@ -1014,9 +1003,8 @@ bool d64::load(std::string filename)
 bool d64::freeSector(const int& track, const int& sector)
 {
     // validate track sector number
-    if (track < 1 || track > TRACKS || sector < 0 || sector > SECTORS_PER_TRACK[track -1]) {
-        std::cerr << "Invalid Tack and Sector TRACK:" << track << " SECTOR:" << sector << std::endl;
-        return false;
+    if (!isValidTrackSector(track, sector)) {
+        throw std::runtime_error("Invalid Tack and Sector TRACK:" + std::to_string(track) + " SECTOR:" + std::to_string(sector));
     }
 
     if (track == DIRECTORY_TRACK && sector == DIRECTORY_SECTOR) {
@@ -1039,6 +1027,12 @@ bool d64::freeSector(const int& track, const int& sector)
     return true;
 }
 
+
+bool d64::isValidTrackSector(int track, int sector) const
+{
+    return track >= 1 && track <= TRACKS && sector >= 0 && sector < SECTORS_PER_TRACK[track - 1];
+}
+
 /// <summary>
 /// allocate a sector
 /// </summary>
@@ -1048,9 +1042,8 @@ bool d64::freeSector(const int& track, const int& sector)
 bool d64::allocateSector(const int& track, const int& sector)
 {
     // validate track sector number
-    if (track < 1 || track > TRACKS || sector < 0 || sector > SECTORS_PER_TRACK[track - 1]) {
-        std::cerr << "Invalid Tack and Sector TRACK:" << track << " SECTOR:" << sector << std::endl;
-        return false;
+    if (!isValidTrackSector(track, sector)) {
+        throw std::runtime_error("Invalid Tack and Sector TRACK:" + std::to_string(track) + " SECTOR:" + std::to_string(sector));
     }
 
     if (!bamtrack(track - 1)->test(sector))
@@ -1070,9 +1063,8 @@ bool d64::allocateSector(const int& track, const int& sector)
 /// <returns>true if successful</returns>
 bool d64::findAndAllocateFreeOnTrack(int track, int& sector)
 {
-    if (track < 1 || track > TRACKS_40 || (track > TRACKS_35 && disktype == thirty_five_track)) {
-        std::cerr << "Error: Invalid track number." << track << '\n';
-        return false;
+    if (track < 1 || track > TRACKS) {
+        throw std::runtime_error("Invalid Tack TRACK:" + std::to_string(track));
     }
 
     // if there are no free sectors in the track go to next track
@@ -1225,7 +1217,7 @@ bool d64::lockfile(std::string filename, bool lock)
 {
     auto fileEntry = findFile(filename);
     if (!fileEntry.has_value()) {
-        std::cerr << "File not found. " << filename << "\n";
+        throw std::runtime_error("File not found " + filename);
         return false;
     }
     fileEntry.value()->file_type.locked = lock ? 1 : 0;
@@ -1320,22 +1312,19 @@ bool d64::validateD64()
     // Check file size
     auto sz = disktype == thirty_five_track ? D64_DISK35_SZ : D64_DISK40_SZ;
     if (data.size() != sz) {
-        std::cerr << "Error: Invalid .d64 size (" << data.size() << " bytes).\n";
-        return false;
+        throw std::runtime_error("Error: Invalid .d64 size (" + std::to_string(data.size()) + " bytes)");
     }
 
     // Check BAM structure
     if (bamPtr->dir_start.track != DIRECTORY_TRACK || bamPtr->dir_start.sector != DIRECTORY_SECTOR) {
-        std::cerr << "Error: BAM structure is invalid (Incorrect directory track/sector).\n";
-        return false;
+        throw std::runtime_error("Error: BAM structure is invalid (Incorrect directory track/sector)");
     }
 
     // Check sector data integrity (optional deeper check)
     auto dir = getTrackSectorPtr(DIRECTORY_TRACK, DIRECTORY_SECTOR);
     auto valid = dir->track == DIRECTORY_TRACK || (dir->track == 0 && dir->sector == 0xFF);
     if (!valid) {
-        std::cerr << "Error: Directory sector does not match expected values.\n";
-        return false;
+        throw std::runtime_error("Error: Directory sector does not match expected values");
     }
 
     return true;
@@ -1434,7 +1423,7 @@ bool d64::writeData(int track, int sector, std::vector<uint8_t> bytes, int byteo
 std::optional<std::vector<uint8_t>> d64::readRELFile(d64::Directory_EntryPtr fileEntry)
 {
     if (fileEntry->file_type.type != FileTypes::REL) {
-        std::cerr << "Error: file is not a REL file.\n";
+        throw std::runtime_error("Error: file is not a REL file");
         return std::nullopt;
     }
 
@@ -1444,7 +1433,7 @@ std::optional<std::vector<uint8_t>> d64::readRELFile(d64::Directory_EntryPtr fil
     int offset = 0;
 
     if (recordLength == 0) {
-        std::cerr << "Error: Invalid REL file structure.\n";
+        throw std::runtime_error("Error: Invalid REL file structure");
         return std::nullopt;
     }
 
