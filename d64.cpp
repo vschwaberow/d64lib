@@ -401,93 +401,123 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
 /// <summary>
 bool d64::addFile(std::string_view filename, FileType type, const std::vector<uint8_t>& fileData)
 {
-    // Find free sectors using BAM
-    auto sz = fileData.size();
-
-    // Write file data to sectors
-    // BAM updated as each sector is written
-    auto offset = 0;
-    int start_track;
-    int start_sector;
-    int next_track;
-    int next_sector;
-    int allocated_sectors = 0;
-    auto bytesLeft = static_cast<int>(fileData.size());
-
-    // find and allocate 1st sector for file
-    if (!findAndAllocateFreeSector(next_track, next_sector)) {
-        std::cerr << "Disk full. Unable to add" << filename << "\n";
+    // Validate inputs
+    if (filename.empty() || fileData.empty()) {
+        std::cerr << "Error: Filename or file data cannot be empty.\n";
         return false;
     }
-    allocated_sectors++;
 
-    // save the start track and sector
-    start_track = next_track;
-    start_sector = next_sector;
-    auto tempdata = fileData;
-    // loop until we write all the bytes of the file
-    while (offset < sz) {
+    // Find and allocate the first sector for the file
+    int start_track, start_sector;
+    if (!findAndAllocateFirstSector(start_track, start_sector, filename)) {
+        return false;
+    }
 
-        // copy next_track sector to track and sector
-        auto track = next_track;
-        auto sector = next_sector;
+    // Write file data to sectors
+    int allocated_sectors = writeFileDataToSectors(start_track, start_sector, fileData);
+    if (allocated_sectors == 0) {
+        return false;
+    }
 
-        // check if we need another sector
-        if (sz - offset > (SECTOR_SIZE - 2)) {
+    // Create a directory entry for the file
+    if (!createDirectoryEntry(filename, type, start_track, start_sector, allocated_sectors)) {
+        return false;
+    }
+
+    return true;
+}
+
+/// <summary>
+/// Find and allocate the first sector for a file
+/// </summary>
+/// <param name="start_track">first track number</param>
+/// <param name="start_sector">first sector number</param>
+/// <param name="filename">name of file</param>
+/// <returns>true on success</returns>
+bool d64::findAndAllocateFirstSector(int& start_track, int& start_sector, std::string_view filename)
+{
+    if (!findAndAllocateFreeSector(start_track, start_sector)) {
+        std::cerr << "Disk full. Unable to add " << filename << "\n";
+        return false;
+    }
+    return true;
+}
+
+/// <summary>
+/// Write file data to disk
+/// first bloack must be already allocated
+/// </summary>
+/// <param name="start_track">starting track</param>
+/// <param name="start_sector">starting sector></param>
+/// <param name="fileData">data to write</param>
+/// <returns>true on success</returns>
+int d64::writeFileDataToSectors(int start_track, int start_sector, const std::vector<uint8_t>& fileData)
+{
+    int allocated_sectors = 1;
+    int next_track = start_track;
+    int next_sector = start_sector;
+    int offset = 0;
+    int bytesLeft = static_cast<int>(fileData.size());
+
+    while (offset < fileData.size()) {
+        int track = next_track;
+        int sector = next_sector;
+
+        if (fileData.size() - offset > (SECTOR_SIZE - 2)) {
             if (!findAndAllocateFreeSector(next_track, next_sector)) {
-                std::cerr << "Disk full. Unable to add" << filename << "\n";
-                return false;
+                std::cerr << "Disk full. Unable to add file data.\n";
+                return 0;
             }
             allocated_sectors++;
         }
         else {
-            // this is the last sector
-            next_track = 0;                         // mark as final sector
-            next_sector = bytesLeft + 1;            // remaining bytes of file + 1
+            next_track = 0;
+            next_sector = bytesLeft + 1;
         }
 
         auto sectorPtr = getSectorPtr(track, sector);
-        // write the 1st 2 bytes the show the next track and sector of the file
         sectorPtr->next.track = static_cast<uint8_t>(next_track);
         sectorPtr->next.sector = static_cast<uint8_t>(next_sector);
 
-        // write the file to the disk       
         writeDataToSector(sectorPtr, fileData, offset, bytesLeft);
     }
 
-    // get a directory slot
+    return allocated_sectors;
+}
+
+/// <summary>
+/// Create a directory entry
+/// </summary>
+/// <param name="filename">name of file</param>
+/// <param name="type">type of file</param>
+/// <param name="start_track">first track</param>
+/// <param name="start_sector">first sector</param>
+/// <param name="allocated_sectors">number of sectors</param>
+/// <returns>true on success</returns>
+bool d64::createDirectoryEntry(std::string_view filename, FileType type, int start_track, int start_sector, int allocated_sectors)
+{
     auto fileEntry = findEmptyDirectorySlot();
     if (!fileEntry.has_value()) {
         return false;
     }
 
-    // set the file type for file
     fileEntry.value()->file_type = type;
-
-    // set the the 1st block of the file
     fileEntry.value()->start.track = start_track;
     fileEntry.value()->start.sector = start_sector;
 
-    // set the name of the file
     auto len = std::min(filename.size(), static_cast<size_t>(FILE_NAME_SZ));
     std::copy_n(filename.begin(), len, fileEntry.value()->file_name);
-    std::fill(fileEntry.value()->file_name + len, fileEntry.value()->file_name + DISK_NAME_SZ, static_cast<char>(A0_VALUE));
+    std::fill(fileEntry.value()->file_name + len, fileEntry.value()->file_name + FILE_NAME_SZ, static_cast<char>(A0_VALUE));
 
-    // these are only for REL files
     fileEntry.value()->side.track = 0;
     fileEntry.value()->side.sector = 0;
     fileEntry.value()->record_length = 0;
-
-    // clear the unused bytes
     std::fill_n(fileEntry.value()->unused, 4, 0);
-
-    // set the replace track and sector
     fileEntry.value()->replace.track = fileEntry.value()->start.track;
     fileEntry.value()->replace.sector = fileEntry.value()->start.sector;
-
-    // set the file size
     fileEntry.value()->file_size[0] = allocated_sectors & 0xFF;
     fileEntry.value()->file_size[1] = (allocated_sectors & 0xFF00) >> 8;
+
     return true;
 }
 

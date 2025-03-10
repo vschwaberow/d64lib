@@ -33,6 +33,16 @@ const int SIDE_SECTOR_CHAIN_SZ = ((SECTOR_SIZE - 15) / (2));
 
 class d64 {
 public:
+    enum diskType {
+        thirty_five_track,
+        forty_track
+    };
+
+
+    d64();
+    d64(diskType type);
+    d64(std::string name);
+
     int TRACKS;
 
     // Constants for D64 format
@@ -126,13 +136,13 @@ public:
     };
 
     struct BAM_TRACK_ENTRY {
-    
+
     public:
         uint8_t free;
-    
+
     private:
         std::array <uint8_t, 3> bytes;
- 
+
     public:
         /// <summary>
         /// test if a sector is used in bam  
@@ -155,7 +165,7 @@ public:
         {
             auto byte = sector / 8;
             auto bit = sector % 8;
-            
+
             std::bitset<8> bits(bytes[byte]);
             bits.set(bit);
             bytes[byte] = static_cast<uint8_t>(bits.to_ulong());
@@ -241,19 +251,12 @@ public:
     };
     typedef struct Directory_Sector* Directory_SectorPtr;
 
-    enum diskType {
-        thirty_five_track,
-        forty_track
-    };
 
-    d64();
-    d64(diskType type);
-    d64(std::string name);
 
     inline BAM_TRACK_ENTRY* bamtrack(int t)
     {
-        return (t < TRACKS_35) ? 
-            &bamTrackPtr[(t)] : 
+        return (t < TRACKS_35) ?
+            &bamTrackPtr[(t)] :
             &bamExtraTrackPtr[((t)-TRACKS_35)];
     }
     inline SectorPtr getSectorPtr(uint8_t track, uint8_t sector)
@@ -295,14 +298,15 @@ public:
     bool allocateSector(const int& track, const int& sector);
     bool findAndAllocateFreeSector(int& track, int& sector);
     std::optional<std::vector<uint8_t>> readFile(std::string filename);
-     
+
     uint16_t getFreeSectorCount();
 
-    inline void initBAMPtr() {
+    inline void initBAMPtr()
+    {
         auto index = calcOffset(DIRECTORY_TRACK, BAM_SECTOR);
         bamPtr = reinterpret_cast<BAMPtr>(&data[index]);
         bamTrackPtr = &(bamPtr->bam_track[0]);
-        bamExtraTrackPtr = reinterpret_cast<BAM_TRACK_ENTRY*>( &data[index + 0xAC]);
+        bamExtraTrackPtr = reinterpret_cast<BAM_TRACK_ENTRY*>(&data[index + 0xAC]);
     }
 
     bool compactDirectory();
@@ -337,6 +341,9 @@ private:
     bool allocateSideSector(int& track, int& sector, SideSectorPtr& side);
     bool allocateDataSector(int& track, int& sector, SectorPtr& sectorPtr);
     void writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft);
+    int writeFileDataToSectors(int start_track, int start_sector, const std::vector<uint8_t>& fileData);
+    bool createDirectoryEntry(std::string_view filename, FileType type, int start_track, int start_sector, int allocated_sectors);
+    bool findAndAllocateFirstSector(int& start_track, int& start_sector, std::string_view filename);
 };
 
 #pragma pack(pop)
