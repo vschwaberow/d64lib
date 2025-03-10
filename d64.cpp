@@ -440,6 +440,60 @@ std::vector<TrackSector> d64::writeFileDataToSectors(int start_track, int start_
 }
 
 /// <summary>
+/// Create a side sector list
+/// </summary>
+/// <param name="allocatedSectors">list of file sectors</param>
+/// <param name="record_size">size of each record</param>
+/// <returns>list of side sectors</returns>
+std::optional<std::vector<SideSectorPtr>> d64::createSideSectors(const std::vector<TrackSector>& allocatedSectors, uint8_t record_size)
+{
+    int ssecTrack, ssecSector;
+    SideSectorPtr sideSector{};
+
+    std::vector<SideSectorPtr> sideSectorList;
+    int block = 0;
+    int sideCount = 0;
+    int chainCount = 0;
+
+    if (!allocateSideSector(ssecTrack, ssecSector, sideSector)) return std::nullopt;
+
+    sideSectorList.push_back(sideSector);
+    sideSector->recordsize = record_size;
+    sideSector->next = { 0, 16 };
+    sideSector->block = block++;
+    SideSectorPtr first = sideSector;
+    first->side_sectors[sideCount++] = { ssecTrack, ssecSector };
+
+    for (const auto& ts : allocatedSectors) {
+        if (chainCount < SIDE_SECTOR_CHAIN_SZ) {
+            sideSector->chain[chainCount++] = ts;
+            sideSector->next.sector += 2;
+        }
+        else {
+            if (sideSectorList.size() >= SIDE_SECTOR_ENTRY_SIZE) {
+                throw std::runtime_error("Exceeded maximum number of side sectors (6)");
+            }
+            if (!allocateSideSector(ssecTrack, ssecSector, sideSector)) return std::nullopt;
+            first->side_sectors[sideCount++] = { ssecTrack, ssecSector };
+            sideSectorList.back()->next = { ssecTrack, ssecSector };
+            sideSector->block = block++;
+            sideSector->recordsize = record_size;
+            chainCount = 0;
+            sideSector->chain[chainCount++] = ts;
+            sideSector->next = { 0, 16 + 2 };
+        }
+    }
+
+    // Add list to each side sector
+    for (auto& sideSectors : sideSectorList) {
+        for (auto side = 0; side < sideCount; ++side) {
+            sideSectors->side_sectors[side] = first->side_sectors[side];
+        }
+    }
+    return sideSectorList;
+}
+
+/// <summary>
 /// Create a directory entry
 /// </summary>
 /// <param name="filename">name of file</param>
@@ -464,51 +518,13 @@ bool d64::createDirectoryEntry(std::string_view filename, FileType type, int sta
     std::fill(fileEntry.value()->file_name + len, fileEntry.value()->file_name + FILE_NAME_SZ, static_cast<char>(A0_VALUE));
 
     if (type.type == FileTypes::REL) {
+        auto sideSectorList = createSideSectors(allocatedSectors, record_size);
+        if (!sideSectorList.has_value() || sideSectorList.value().size() < 1) {
+            throw std::runtime_error("Error: Unable to create side sector list");
+        }
         fileEntry.value()->record_length = record_size;
-        int ssecTrack, ssecSector;
-        SideSectorPtr sideSector{};
-
-        std::vector<SideSectorPtr> sideSectorList;
-        int block = 0;
-        int sideCount = 0;
-        int chainCount = 0;
-
-        if (!allocateSideSector(ssecTrack, ssecSector, sideSector)) return false;
-        fileEntry.value()->side.track = ssecTrack;
-        fileEntry.value()->side.sector = ssecSector;
-        sideSectorList.push_back(sideSector);
-        sideSector->recordsize = record_size;
-        sideSector->next = { 0, 16 };
-        sideSector->block = block++;
-        SideSectorPtr first = sideSector;
-        first->side_sectors[sideCount++] = { ssecTrack, ssecSector };
-
-        for (const auto& ts : allocatedSectors) {
-            if (chainCount < SIDE_SECTOR_CHAIN_SZ) {
-                sideSector->chain[chainCount++] = ts;
-                sideSector->next.sector += 2;
-            }
-            else {
-                if (sideSectorList.size() >= SIDE_SECTOR_ENTRY_SIZE) {
-                    throw std::runtime_error("Exceeded maximum number of side sectors (6)");
-                }
-                if (!allocateSideSector(ssecTrack, ssecSector, sideSector)) return false;
-                first->side_sectors[sideCount++] = { ssecTrack, ssecSector };
-                sideSectorList.back()->next = { ssecTrack, ssecSector };
-                sideSector->block = block++;
-                sideSector->recordsize = record_size;
-                chainCount = 0;
-                sideSector->chain[chainCount++] = ts;
-                sideSector->next = { 0, 16 + 2 };
-            }
-        }
-
-        // Add list to each side sector
-        for (auto& sideSectors : sideSectorList) {
-            for (auto side = 0; side < sideCount; ++side) {
-                sideSectors->side_sectors[side] = first->side_sectors[side];
-            }
-        }
+        fileEntry.value()->side.track = sideSectorList.value()[0]->side_sectors[0].track;
+        fileEntry.value()->side.sector = sideSectorList.value()[0]->side_sectors[0].sector;
     }
     else {
         fileEntry.value()->side.track = 0;
@@ -1308,7 +1324,7 @@ bool d64::reorderDirectory(std::function<bool(const Directory_Entry&, const Dire
 
 /// <summary>
 /// return the current directory entries
-/// </summary>
+/// </summary >
 /// <returns>current directory entries</returns>
 std::vector<Directory_Entry> d64::directory()
 {

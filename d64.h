@@ -114,6 +114,7 @@ private:
     bool allocateDataSector(int& track, int& sector, SectorPtr& sectorPtr);
     void writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft);
     std::vector<TrackSector> writeFileDataToSectors(int start_track, int start_sector, const std::vector<uint8_t>& fileData);
+    std::optional<std::vector<SideSectorPtr>> createSideSectors(const std::vector<TrackSector>& allocatedSectors, uint8_t record_size);
     bool createDirectoryEntry(std::string_view filename, FileType type, int start_track, int start_sector, const std::vector<TrackSector>& allocatedSectors, uint8_t record_size);
     bool findAndAllocateFirstSector(int& start_track, int& start_sector);
     inline void initBAMPtr()
