@@ -155,9 +155,24 @@ void d64::formatDisk(std::string_view name)
 /// <returns>true on success</returns>
 bool d64::writeSector(int track, int sector, std::vector<uint8_t> bytes)
 {
-    if (bytes.size() != SECTOR_SIZE) return false;
-    return writeData(track, sector, bytes, 0);
+    try {
+        if (!isValidTrackSector(track, sector) || bytes.size() != SECTOR_SIZE) {
+            throw std::invalid_argument("Invalid track, sector, or byte size");
+        }
+        return writeData(track, sector, bytes, 0);
+    }
+    catch (const std::invalid_argument& e) {
+        std::cerr << "Invalid argument: " << e.what() << std::endl;
+    }
+    catch (const std::runtime_error& e) {
+        std::cerr << "Runtime error: " << e.what() << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+    return false;
 }
+
 
 /// <summary>
 /// Write a byte to a sector
@@ -169,6 +184,7 @@ bool d64::writeSector(int track, int sector, std::vector<uint8_t> bytes)
 /// <returns>true on success</returns>
 bool d64::writeByte(int track, int sector, int byteoffset, uint8_t value)
 {
+    if (!isValidTrackSector(track, sector) || byteoffset < 0 || byteoffset >= SECTOR_SIZE) return false;
     return writeData(track, sector, { value }, byteoffset);
 }
 
@@ -181,10 +197,10 @@ bool d64::writeByte(int track, int sector, int byteoffset, uint8_t value)
 /// <returns>optional data read</returns>
 std::optional<uint8_t> d64::readByte(int track, int sector, int byteoffset)
 {
+    if (!isValidTrackSector(track, sector) || byteoffset < 0 || byteoffset >= SECTOR_SIZE) return std::nullopt;
     auto offset = calcOffset(track, sector) + byteoffset;
     if (offset >= 0 && offset < data.size()) {
-        auto value = data[offset];
-        return value;
+        return data[offset];
     }
     return std::nullopt;
 }
@@ -197,14 +213,14 @@ std::optional<uint8_t> d64::readByte(int track, int sector, int byteoffset)
 /// <returns>optional vector of data read</returns>
 std::optional<std::vector<uint8_t>> d64::readSector(int track, int sector)
 {
+    if (!isValidTrackSector(track, sector)) return std::nullopt;
     std::vector<uint8_t> bytes(SECTOR_SIZE);
     auto index = calcOffset(track, sector);
-    if (index >= 0) {
+    if (index >= 0 && index + SECTOR_SIZE <= data.size()) {
         std::copy_n(data.begin() + index, SECTOR_SIZE, bytes.begin());
         return bytes;
     }
-    else
-        return std::nullopt;
+    return std::nullopt;
 }
 
 /// <summary>
@@ -783,35 +799,38 @@ bool d64::compactDirectory()
 /// <returns>optional pointer to the fiels directory entry</returns>
 std::optional<Directory_EntryPtr> d64::findFile(std::string_view filename)
 {
-    // set thE initial directory track and sector
-    auto dir_track = DIRECTORY_TRACK;
-    auto dir_sector = DIRECTORY_SECTOR;
+    try {
+        auto dir_track = DIRECTORY_TRACK;
+        auto dir_sector = DIRECTORY_SECTOR;
 
-    // track set to 0 signifies last directory sector
-    while (dir_track != 0) {
-        // get a pointer to current dirctory sector
-        auto dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
-        // get the file entry
-        for (auto& fileEntry: dirSectorPtr->fileEntry) {
-            // see if the file is allocated
-            if ((fileEntry.file_type.closed) == 0) {
-                continue;
+        while (dir_track != 0) {
+            auto dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
+            for (auto& fileEntry : dirSectorPtr->fileEntry) {
+                if (fileEntry.file_type.closed == 0) {
+                    continue;
+                }
+                std::string entryName(fileEntry.file_name, FILE_NAME_SZ);
+                entryName.erase(std::find_if(entryName.begin(), entryName.end(), [](char c) { return c == static_cast<char>(A0_VALUE); }), entryName.end());
+                if (entryName == filename) {
+                    return &fileEntry;
+                }
             }
-            // Extract and trim the file name
-            std::string entryName(fileEntry.file_name, FILE_NAME_SZ);
-            entryName.erase(std::find_if(entryName.begin(), entryName.end(), [](char c) { return c == static_cast<char>(A0_VALUE); }), entryName.end());
-            if (entryName == filename) {
-                return &fileEntry;
-            }
+            dir_track = dirSectorPtr->next.track;
+            dir_sector = dirSectorPtr->next.sector;
         }
-        // get the next directory track and sector
-        dir_track = dirSectorPtr->next.track;
-        dir_sector = dirSectorPtr->next.sector;
     }
-
-    // did not find the entry
+    catch (const std::out_of_range& e) {
+        std::cerr << "Out of range error: " << e.what() << std::endl;
+    }
+    catch (const std::runtime_error& e) {
+        std::cerr << "Runtime error: " << e.what() << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
     return std::nullopt;
 }
+
 
 /// <summary>
 /// remove a file from the disk
@@ -820,30 +839,33 @@ std::optional<Directory_EntryPtr> d64::findFile(std::string_view filename)
 /// <returns>true if successful</returns>
 bool d64::removeFile(std::string_view filename)
 {
-    // find the file
-    auto fileEntry = findFile(filename);
-    // return false if we cant find it
-    if (!fileEntry.has_value()) {
-        throw std::runtime_error("File not found: " + std::string(filename));
-    }
-    // Free all file sectors
-    // get the start track and sector
-    int track = fileEntry.value()->start.track;
-    int sector = fileEntry.value()->start.sector;
+    try {
+        auto fileEntry = findFile(filename);
+        if (!fileEntry.has_value()) {
+            throw std::runtime_error("File not found: " + std::string(filename));
+        }
+        int track = fileEntry.value()->start.track;
+        int sector = fileEntry.value()->start.sector;
 
-    // now follow the next track sector of the file
-    while (track != 0) {
-        auto sectorPtr = getTrackSectorPtr(track, sector);
-        auto next_track = sectorPtr->track;
-        auto next_sector = sectorPtr->sector;
-        freeSector(track, sector);
-        track = next_track;
-        sector = next_sector;
-    }
+        while (track != 0) {
+            auto sectorPtr = getTrackSectorPtr(track, sector);
+            auto next_track = sectorPtr->track;
+            auto next_sector = sectorPtr->sector;
+            freeSector(track, sector);
+            track = next_track;
+            sector = next_sector;
+        }
 
-    // Mark directory entry as deleted
-    memset(fileEntry.value(), 0, sizeof(Directory_Entry));
-    return true;
+        memset(fileEntry.value(), 0, sizeof(Directory_Entry));
+        return true;
+    }
+    catch (const std::runtime_error& e) {
+        std::cerr << "Runtime error: " << e.what() << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+    return false;
 }
 
 /// <summary>
@@ -854,12 +876,10 @@ bool d64::removeFile(std::string_view filename)
 /// <returns>true if successful</returns>
 bool d64::renameFile(std::string_view oldfilename, std::string_view newfilename)
 {
-    // see if we can find the file
     auto fileEntry = findFile(oldfilename);
     if (!fileEntry.has_value()) {
         throw std::runtime_error("File not found: " + std::string(oldfilename));
     }
-    // padd the name with A0 and limit length to FILE_NAME_SZ
     auto len = std::min(newfilename.size(), static_cast<size_t>(FILE_NAME_SZ));
     std::copy_n(newfilename.begin(), len, fileEntry.value()->file_name);
     std::fill(fileEntry.value()->file_name + len, fileEntry.value()->file_name + FILE_NAME_SZ, static_cast<char>(A0_VALUE));
@@ -873,18 +893,16 @@ bool d64::renameFile(std::string_view oldfilename, std::string_view newfilename)
 /// <returns>true if successful</returns>
 bool d64::extractFile(std::string filename)
 {
-    // find the file
     auto fileEntry = findFile(filename);
     if (!fileEntry.has_value()) {
         throw std::runtime_error("File not found: " + std::string(filename));
-        return false;
     }
 
-    static std::map<FileTypes, std::string> extMap = {
-        { FileTypes::PRG, ".prg"},
-        { FileTypes::SEQ, ".seq"},
-        { FileTypes::USR, ".usr"},
-        { FileTypes::REL, ".rel"},
+    static const std::map<FileTypes, std::string> extMap = {
+        { FileTypes::PRG, ".prg" },
+        { FileTypes::SEQ, ".seq" },
+        { FileTypes::USR, ".usr" },
+        { FileTypes::REL, ".rel" },
     };
     auto it = extMap.find(fileEntry.value()->file_type.type);
     if (it == extMap.end()) {
@@ -894,12 +912,11 @@ bool d64::extractFile(std::string filename)
     auto fileData = readFile(filename);
     if (!fileData.has_value()) {
         throw std::runtime_error("Unable to read file " + filename);
-        return false;
     }
 
-    auto ext = extMap[fileEntry.value()->file_type.type];
+    auto ext = extMap.at(fileEntry.value()->file_type.type);
     std::ofstream outFile((filename + ext).c_str(), std::ios::binary);
-    outFile.write(reinterpret_cast<char*>(&fileData.value()[0]), fileData.value().size());
+    outFile.write(reinterpret_cast<char*>(fileData->data()), fileData->size());
     outFile.close();
 
     return true;
@@ -962,37 +979,52 @@ bool d64::save(std::string filename)
 /// <returns>true if sucessful</returns>
 bool d64::load(std::string filename)
 {
-    // open the file
-    std::ifstream inFile(filename, std::ios::binary);
-    if (!inFile) {
-        throw std::runtime_error("Error: Could not open disk file " + filename + " for reading");
+    try {
+        // open the file
+        std::ifstream inFile(filename, std::ios::binary);
+        if (!inFile) {
+            throw std::ios_base::failure("Error: Could not open disk file " + filename + " for reading");
+        }
+        inFile.seekg(0, std::ios::end);
+        auto pos = inFile.tellg();
+
+        inFile.seekg(0, std::ios::beg);
+        if (pos != D64_DISK35_SZ && pos != D64_DISK40_SZ) {
+            throw std::invalid_argument("Invalid disk size");
+        }
+        disktype = (pos == D64_DISK35_SZ) ? thirty_five_track : forty_track;
+
+        // allocate the disk
+        init_disk();
+
+        // read the data
+        inFile.read(reinterpret_cast<char*>(data.data()), data.size());
+
+        // close the file
+        inFile.close();
+
+        // validate the disk
+        if (!validateD64()) {
+            formatDisk("NEW DISK");
+        }
+
+        return true;
     }
-    inFile.seekg(0, std::ios::end);
-    auto pos = inFile.tellg();
-  
-    inFile.seekg(0, std::ios::beg);
-    if (pos != D64_DISK35_SZ && pos != D64_DISK40_SZ) {
-        throw std::invalid_argument("Invalid disk size");
+    catch (const std::ios_base::failure& e) {
+        std::cerr << "I/O error: " << e.what() << std::endl;
     }
-    disktype = (pos == D64_DISK35_SZ) ? thirty_five_track : forty_track; 
-  
-    // allocate the disk
-    init_disk();
-
-    // read the data
-    inFile.read(reinterpret_cast<char*>(data.data()), data.size());
-
-    // close the file
-    inFile.close();
-
-    // validate the disk
-    if (!validateD64()) {
-        formatDisk("NEW DISK");
+    catch (const std::invalid_argument& e) {
+        std::cerr << "Invalid argument: " << e.what() << std::endl;
     }
-
-    // exit
-    return true;
+    catch (const std::runtime_error& e) {
+        std::cerr << "Runtime error: " << e.what() << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+    return false;
 }
+
 
 /// <summary>
 /// Free a sector
@@ -1411,10 +1443,10 @@ std::optional<std::vector<uint8_t>> d64::readPRGFile(Directory_EntryPtr fileEntr
 
 bool d64::writeData(int track, int sector, std::vector<uint8_t> bytes, int byteoffset = 0)
 {
-    if (bytes.size() != SECTOR_SIZE) return false;
-    auto index = calcOffset(track, sector);
-    if (index >= 0) {
-        std::copy_n(bytes.begin() + byteoffset, SECTOR_SIZE, data.begin() + index);
+    if (byteoffset < 0 || byteoffset >= SECTOR_SIZE) return false;
+    auto index = calcOffset(track, sector) + byteoffset;
+    if (index >= 0 && index + bytes.size() <= data.size()) {
+        std::copy(bytes.begin(), bytes.end(), data.begin() + index);
         return true;
     }
     return false;
