@@ -77,6 +77,7 @@ namespace d64lib_unit_test
         d64 disk;
         allocation_helper(&disk);
 
+        disk.save("sector_allocation_test.d64");
         d64lib_unit_test_method_cleanup();
     }
 
@@ -88,6 +89,7 @@ namespace d64lib_unit_test
         d64 disk(diskType::forty_track);
         allocation_helper(&disk);
 
+        disk.save("sector_allocation_40_test.d64");
         d64lib_unit_test_method_cleanup();
     }
 
@@ -105,6 +107,7 @@ namespace d64lib_unit_test
         EXPECT_EQ(disk.getFreeSectorCount(), (D64_DISK35_SZ / SECTOR_SIZE) - 
             disk.SECTORS_PER_TRACK[DIRECTORY_TRACK -1]);
 
+        disk.save("create_unit_test.d64");
         d64lib_unit_test_method_cleanup();
     }
 
@@ -122,6 +125,7 @@ namespace d64lib_unit_test
         EXPECT_EQ(disk.getFreeSectorCount(), (D64_DISK40_SZ / SECTOR_SIZE) - 
             disk.SECTORS_PER_TRACK[DIRECTORY_TRACK - 1]);
 
+        disk.save("create_40_unit_test.d64");
         d64lib_unit_test_method_cleanup();
     }
 
@@ -142,6 +146,7 @@ namespace d64lib_unit_test
         auto added = disk.addRelFile("RELFILE", FileTypes::REL, RECORD_SIZE,  rel_file);
         EXPECT_TRUE(added);
 
+        disk.save("addrelfile_test.d64");
         d64lib_unit_test_method_cleanup();
     }
 
@@ -168,6 +173,7 @@ namespace d64lib_unit_test
             EXPECT_EQ(rel_file, readrelfile.value());
         }
 
+        disk.save("readrelfile_test.d64");
         d64lib_unit_test_method_cleanup();
     }
 
@@ -193,6 +199,7 @@ namespace d64lib_unit_test
                 EXPECT_TRUE(readfile.value()[i] == big_file[i]);
             }
         }
+        disk.save("large_file_unit_test.d64");
         d64lib_unit_test_method_cleanup();
     }
 
@@ -226,6 +233,7 @@ namespace d64lib_unit_test
                 EXPECT_TRUE(readfile.value() == prog);
             }
         }
+        disk.save("add_file_unit_test.d64");
         d64lib_unit_test_method_cleanup();
     }
 
@@ -262,6 +270,7 @@ namespace d64lib_unit_test
                 std::remove((filename + ".prg").c_str());
             }
         }        
+        disk.save("extract_file_unit_test.d64");
         d64lib_unit_test_method_cleanup();
     }
 }

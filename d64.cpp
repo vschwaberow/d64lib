@@ -489,7 +489,7 @@ bool d64::createDirectoryEntry(std::string_view filename, FileType type, int sta
                 sideSector->next.sector += 2;
             }
             else {
-                if (sideSectorList.size() >= 6) {
+                if (sideSectorList.size() >= SIDE_SECTOR_ENTRY_SIZE) {
                     throw std::runtime_error("Exceeded maximum number of side sectors (6)");
                 }
                 if (!allocateSideSector(ssecTrack, ssecSector, sideSector)) return false;
@@ -1040,7 +1040,7 @@ bool d64::freeSector(const int& track, const int& sector)
     }
 
     // calculate byte of BAM entry for track
-    // is stored as a bitmap of 3 bytes. 1 if free and 0 if allocated    
+    // its stored as a bitmap of 3 bytes. 1 if free and 0 if allocated    
     if (bamtrack(track - 1)->test(sector))
         return false;
     
