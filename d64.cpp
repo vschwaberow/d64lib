@@ -191,7 +191,7 @@ std::optional<uint8_t> d64::readByte(int track, int sector, int byteoffset)
 {
     if (!isValidTrackSector(track, sector) || byteoffset < 0 || byteoffset >= SECTOR_SIZE) return std::nullopt;
     auto offset = calcOffset(track, sector) + byteoffset;
-    if (offset >= 0 && offset < data.size()) {
+    if (offset >= 0 && offset < static_cast<int>(data.size())) {
         return data[offset];
     }
     return std::nullopt;
@@ -208,7 +208,7 @@ std::optional<std::vector<uint8_t>> d64::readSector(int track, int sector)
     if (!isValidTrackSector(track, sector)) return std::nullopt;
     std::vector<uint8_t> bytes(SECTOR_SIZE);
     auto index = calcOffset(track, sector);
-    if (index >= 0 && index + SECTOR_SIZE <= data.size()) {
+    if (index >= 0 && index + SECTOR_SIZE <= static_cast<int>(data.size())) {
         std::copy_n(data.begin() + index, SECTOR_SIZE, bytes.begin());
         return bytes;
     }
@@ -372,7 +372,7 @@ std::vector<TrackSector> d64::writeFileDataToSectors(int start_track, int start_
     int offset = 0;
     int bytesLeft = static_cast<int>(fileData.size());
 
-    while (offset < fileData.size()) {
+    while (offset < static_cast<int>(fileData.size())) {
         int track = next_track;
         int sector = next_sector;
 
