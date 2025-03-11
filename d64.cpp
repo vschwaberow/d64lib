@@ -373,8 +373,6 @@ bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_si
 
     // Write file data to sectors
     auto allocatedSectors = writeFileDataToSectors(start_track, start_sector, fileData);
-    // Add the first allocated sector
-    //allocatedSectors.insert(allocatedSectors.begin(), { start_track, start_sector });
 
     // Create a directory entry for the file
     if (!createDirectoryEntry(filename, type, start_track, start_sector, allocatedSectors, record_size)) {
@@ -400,7 +398,7 @@ bool d64::findAndAllocateFirstSector(int& start_track, int& start_sector)
 
 /// <summary>
 /// Write file data to disk
-/// first bloack must be already allocated
+/// first block must be already allocated
 /// </summary>
 /// <param name="start_track">starting track</param>
 /// <param name="start_sector">starting sector></param>
@@ -486,9 +484,7 @@ std::optional<std::vector<SideSectorPtr>> d64::createSideSectors(const std::vect
 
     // Add list to each side sector
     for (auto& sideSectors : sideSectorList) {
-        for (auto side = 0; side < sideCount; ++side) {
-            sideSectors->side_sectors[side] = first->side_sectors[side];
-        }
+        std::copy_n(first->side_sectors, sideCount, sideSectors->side_sectors);
     }
     return sideSectorList;
 }
@@ -527,9 +523,9 @@ bool d64::createDirectoryEntry(std::string_view filename, FileType type, int sta
         fileEntry.value()->side.sector = sideSectorList.value()[0]->side_sectors[0].sector;
     }
     else {
+        fileEntry.value()->record_length = 0;
         fileEntry.value()->side.track = 0;
         fileEntry.value()->side.sector = 0;
-        fileEntry.value()->record_length = 0;
     }
 
     fileEntry.value()->replace.track = fileEntry.value()->start.track;
@@ -1032,7 +1028,6 @@ bool d64::load(std::string filename)
     return false;
 }
 
-
 /// <summary>
 /// Free a sector
 /// </summary>
@@ -1045,7 +1040,6 @@ bool d64::freeSector(const int& track, const int& sector)
     if (!isValidTrackSector(track, sector)) {
         throw std::runtime_error("Invalid Tack and Sector TRACK:" + std::to_string(track) + " SECTOR:" + std::to_string(sector));
     }
-
     if (track == DIRECTORY_TRACK && sector == DIRECTORY_SECTOR) {
         std::cerr << "Warning: Attempt to free directory sector ignored (Track 18, Sector 1)\n";
         return false;
@@ -1289,9 +1283,11 @@ bool d64::reorderDirectory(std::vector<Directory_Entry>& files)
     while (dir_track != 0 && index < files.size()) {
         std::fill_n(reinterpret_cast<uint8_t*>(dirSectorPtr), SECTOR_SIZE, 0); // Clear sector
 
-        for (auto i = 0; i < FILES_PER_SECTOR && index < files.size(); ++i, ++index) {
-            dirSectorPtr->fileEntry[i] = files[index];
-        }
+        auto len = std::min(FILES_PER_SECTOR, static_cast<int>(files.size() - 1));
+        std::copy_n(files.begin(), len, dirSectorPtr->fileEntry);
+        //for (auto i = 0; i < FILES_PER_SECTOR && index < files.size(); ++i, ++index) {
+        //    dirSectorPtr->fileEntry[i] = files[index];
+        //}
 
         dir_track = dirSectorPtr->next.track;
         dir_sector = dirSectorPtr->next.sector;
