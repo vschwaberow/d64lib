@@ -1388,12 +1388,6 @@ std::vector<TrackSector> d64::parseSideSectors(int sideTrack, int sideSector)
         uint8_t nextTrack = sideSectorPtr->next.track;
         uint8_t nextSector = sideSectorPtr->next.sector;
 
-        // Block number
-        uint8_t block = sideSectorPtr->block;
-
-        // Record size
-        uint8_t recordSize = sideSectorPtr->recordsize;
-
         // Read record-to-sector mappings
         for (auto i = 0; i < SIDE_SECTOR_CHAIN_SZ; ++i) {
             if (sideSectorPtr->chain[i].track == 0)
@@ -1444,6 +1438,14 @@ std::optional<std::vector<uint8_t>> d64::readPRGFile(Directory_EntryPtr fileEntr
     return fileData;
 }
 
+/// <summary>
+/// Write data to disk
+/// </summary>
+/// <param name="track">tarck to write</param>
+/// <param name="sector">sector to write</param>
+/// <param name="bytes">vector of bytes to write</param>
+/// <param name="byteoffset">offset of sector write at</param>
+/// <returns></returns>
 bool d64::writeData(int track, int sector, std::vector<uint8_t> bytes, int byteoffset = 0)
 {
     if (byteoffset < 0 || byteoffset >= SECTOR_SIZE) return false;
