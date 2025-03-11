@@ -143,7 +143,7 @@ namespace d64lib_unit_test
         }
 
         d64 disk;
-        auto added = disk.addRelFile("RELFILE", FileTypes::REL, RECORD_SIZE,  rel_file);
+        auto added = disk.addFile("RELFILE", FileTypes::REL,  rel_file, RECORD_SIZE);
         EXPECT_TRUE(added);
 
         disk.save("addrelfile_test.d64");
@@ -163,7 +163,7 @@ namespace d64lib_unit_test
         }
 
         d64 disk;
-        auto added = disk.addRelFile("RELFILE", FileTypes::REL, 64, rel_file);
+        auto added = disk.addFile("RELFILE", FileTypes::REL, rel_file, 64);
         EXPECT_TRUE(added);
 
         auto readrelfile = disk.readFile("RELFILE");

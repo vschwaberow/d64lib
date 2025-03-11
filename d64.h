@@ -24,8 +24,7 @@ public:
     bool rename_disk(std::string_view name) const;
     std::string diskname();
     std::optional<Directory_EntryPtr> findFile(std::string_view filename);
-    bool addFile(std::string_view filename, FileType type, const std::vector<uint8_t>& fileData);
-    bool addRelFile(std::string_view filename, FileType type, uint8_t record_size, const std::vector<uint8_t>& fileData);
+    bool addFile(std::string_view filename, FileType type, const std::vector<uint8_t>& fileData, int recirdSize = 0);
     bool removeFile(std::string_view filename);
     bool renameFile(std::string_view oldfilename, std::string_view newfilename);
     bool extractFile(std::string filename);
@@ -95,21 +94,19 @@ public:
 private:
     static constexpr int INTERLEAVE = 10;
     std::array<int, TRACKS_40> lastSectorUsed = { -1 };
+    BAMPtr bamPtr;
+    BAM_TRACK_ENTRY* bamTrackPtr;
+    BAM_TRACK_ENTRY* bamExtraTrackPtr;
+    diskType disktype = thirty_five_track;
 
     bool validateD64();
     void initBAM(std::string_view name);
     void initializeBAMFields(std::string_view name);
     bool writeData(int track, int sector, std::vector<uint8_t> bytes, int byteoffset);
     std::vector<TrackSector> parseSideSectors(int sideTrack, int sideSector);
-    BAMPtr bamPtr;
-    BAM_TRACK_ENTRY* bamTrackPtr;
-    BAM_TRACK_ENTRY* bamExtraTrackPtr;
-    diskType disktype = thirty_five_track;
     void init_disk();
     bool findAndAllocateFreeOnTrack(int t, int& sector);
     std::optional<Directory_EntryPtr> findEmptyDirectorySlot();
-    std::optional<std::vector<uint8_t>> readRELFile(Directory_EntryPtr fileEntry);
-    std::optional<std::vector<uint8_t>> readPRGFile(Directory_EntryPtr fileEntry);
     bool allocateSideSector(int& track, int& sector, SideSectorPtr& side);
     bool allocateDataSector(int& track, int& sector, SectorPtr& sectorPtr);
     void writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft);

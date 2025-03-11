@@ -316,6 +316,7 @@ void d64::writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fil
     }
 }
 
+
 /// <summary>
 /// Add a file to the disk
 /// </summary>
@@ -324,7 +325,7 @@ void d64::writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fil
 /// <param name="fileData">data to the file</param>
 /// <returns>true if successful</returns>
 /// <summary>
-bool d64::addFile(std::string_view filename, FileType type, const std::vector<uint8_t>& fileData)
+bool d64::addFile(std::string_view filename, FileType type, const std::vector<uint8_t>& fileData, int recordSize)
 {
     // Validate inputs
     if (filename.empty() || fileData.empty()) {
@@ -341,41 +342,7 @@ bool d64::addFile(std::string_view filename, FileType type, const std::vector<ui
     auto allocatedSectors = writeFileDataToSectors(start_track, start_sector, fileData);
 
     // Create a directory entry for the file
-    if (!createDirectoryEntry(filename, type, start_track, start_sector, allocatedSectors, 0)) {
-        return false;
-    }
-
-    return true;
-}
-
-/// <summary>
-/// Add a .rel file to the disk
-/// </summary>
-/// <param name="filename">file to add</param>
-/// <param name="type">FileTypes.REL</param>
-/// <param name="record_size">size of each record. must be less than 254</param>
-/// <param name="fileData">data for the file</param>
-/// <returns>true if successful</returns>
-bool d64::addRelFile(std::string_view filename, FileType type, uint8_t record_size, const std::vector<uint8_t>& fileData)
-{
-    if (record_size >= SECTOR_SIZE - sizeof(TrackSector)) return false;
-
-    // Validate inputs
-    if (filename.empty() || fileData.empty()) {
-        throw std::runtime_error("Error: Filename or file data cannot be empty");
-    }
-
-    // Find and allocate the first sector for the file
-    int start_track, start_sector;
-    if (!findAndAllocateFirstSector(start_track, start_sector)) {
-        return false;
-    }
-
-    // Write file data to sectors
-    auto allocatedSectors = writeFileDataToSectors(start_track, start_sector, fileData);
-
-    // Create a directory entry for the file
-    if (!createDirectoryEntry(filename, type, start_track, start_sector, allocatedSectors, record_size)) {
+    if (!createDirectoryEntry(filename, type, start_track, start_sector, allocatedSectors, recordSize)) {
         return false;
     }
 
@@ -513,6 +480,7 @@ bool d64::createDirectoryEntry(std::string_view filename, FileType type, int sta
     std::copy_n(filename.begin(), len, fileEntry.value()->file_name);
     std::fill(fileEntry.value()->file_name + len, fileEntry.value()->file_name + FILE_NAME_SZ, static_cast<char>(A0_VALUE));
 
+    // create side sectors for .REL files
     if (type.type == FileTypes::REL) {
         auto sideSectorList = createSideSectors(allocatedSectors, record_size);
         if (!sideSectorList.has_value() || sideSectorList.value().size() < 1) {
@@ -537,7 +505,7 @@ bool d64::createDirectoryEntry(std::string_view filename, FileType type, int sta
 }
 
 /// <summary>
-/// verify the BAM inegrity
+/// verify the BAM integrity
 /// </summary>
 /// <param name="fix">true to auto fix</param>
 /// <param name="logFile">logfile name or "" for std::cerr</param>
@@ -937,10 +905,32 @@ std::optional<std::vector<uint8_t>> d64::readFile(std::string filename)
     if (!fileEntry.has_value()) {
         throw std::runtime_error("File not found: " + filename);
     }
-    if (fileEntry.value()->file_type.type == FileTypes::REL) {
-        return readRELFile(fileEntry.value());
+
+    // the file data will be stored here
+    std::vector<uint8_t> fileData;
+
+    // get the files start track and sector
+    int track = fileEntry.value()->start.track;
+    int sector = fileEntry.value()->start.sector;
+
+    // track 0 signifies end
+    while (track != 0) {
+
+        // get the next track and sector of file
+        auto sectorPtr = getSectorPtr(track, sector);
+
+        // if the track is not zero then write the whole block
+        int bytes = sectorPtr->next.track != 0 ? sizeof(sectorPtr->data) : sectorPtr->next.sector - 1;
+        // append the data at the end 
+        fileData.insert(fileData.end(), sectorPtr->data.begin(), sectorPtr->data.begin() + bytes);
+
+        // set current track and sector
+        track = sectorPtr->next.track;
+        sector = sectorPtr->next.sector;
     }
-    return readPRGFile(fileEntry.value());
+
+    // exit
+    return fileData;
 }
 
 /// <summary>
@@ -1088,7 +1078,7 @@ bool d64::allocateSector(const int& track, const int& sector)
         return false;
 
     bamtrack(track - 1)->reset(sector); // mark track sector as ALLOCATED 
-    bamtrack(track - 1)->free--;            // deccrement free
+    bamtrack(track - 1)->free--;        // decrement free
 
     return true;
 }
@@ -1404,41 +1394,6 @@ std::vector<TrackSector> d64::parseSideSectors(int sideTrack, int sideSector)
 }
 
 /// <summary>
-/// Read a file from the disk
-/// any type except .rel
-/// </summary>
-/// <param name="filename">file to extract</param>
-/// <returns>true on sucess</returns>
-std::optional<std::vector<uint8_t>> d64::readPRGFile(Directory_EntryPtr fileEntry)
-{
-    // the file data will be stored here
-    std::vector<uint8_t> fileData;
-
-    // get the files start track and sector
-    int track = fileEntry->start.track;
-    int sector = fileEntry->start.sector;
-
-    // track 0 signifies end
-    while (track != 0) {
-
-        // get the next track and sector of file
-        auto sectorPtr = getSectorPtr(track, sector);
-
-        // if the track is not zero then write the whole block
-        int bytes = sectorPtr->next.track != 0 ? sizeof(sectorPtr->data) : sectorPtr->next.sector - 1;
-        // append the data at the end 
-        fileData.insert(fileData.end(), sectorPtr->data.begin(), sectorPtr->data.begin() + bytes);
-        
-        // set current track and sector
-        track = sectorPtr->next.track;
-        sector = sectorPtr->next.sector;
-    }
-
-    // exit
-    return fileData;
-}
-
-/// <summary>
 /// Write data to disk
 /// </summary>
 /// <param name="track">tarck to write</param>
@@ -1455,42 +1410,4 @@ bool d64::writeData(int track, int sector, std::vector<uint8_t> bytes, int byteo
         return true;
     }
     return false;
-}
-
-/// <summary>
-/// Read a .rel file from the disk 
-/// </summary>
-/// <param name="filename">.rel file to read</param>
-/// <returns>true on sucess</returns>
-std::optional<std::vector<uint8_t>> d64::readRELFile(Directory_EntryPtr fileEntry)
-{
-    if (fileEntry->file_type.type != FileTypes::REL) {
-        throw std::runtime_error("Error: file is not a REL file");
-        return std::nullopt;
-    }
-
-    int sideTrack = fileEntry->side.track;
-    int sideSector = fileEntry->side.sector;
-    int recordLength = fileEntry->record_length;
-    int offset = 0;
-
-    if (recordLength == 0) {
-        throw std::runtime_error("Error: Invalid REL file structure");
-        return std::nullopt;
-    }
-
-    std::vector<uint8_t> fileData;
-
-    // Get the record-to-sector mapping
-    std::vector<TrackSector> recordMap = parseSideSectors(sideTrack, sideSector);
-
-    // Extract records in order
-    for (auto& rec : recordMap) {
-        auto sectorPtr = getSectorPtr(rec.track, rec.sector);
-
-        int bytes = sectorPtr->next.track != 0 ? sizeof(sectorPtr->data) : sectorPtr->next.sector -1;
-        fileData.insert(fileData.end(), sectorPtr->data.begin(), sectorPtr->data.begin() + bytes);
-    }
-
-    return fileData;
 }
