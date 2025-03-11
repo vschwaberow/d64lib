@@ -73,7 +73,7 @@ void d64::init_disk()
 }
 
 // NOTE: track starts at 1. returns offset int datafor track and sector
-inline int d64::calcOffset(int track, int sector) const
+int d64::calcOffset(int track, int sector) const
 {
     if (!isValidTrackSector(track, sector)) {
         throw std::runtime_error("Invalid Track and Sector TRACK:" + std::to_string(track) + " SECTOR:" + std::to_string(sector));
