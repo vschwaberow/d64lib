@@ -8,15 +8,21 @@
 
 namespace d64lib_unit_test
 {
+    static bool saveDiskImages = true;
+
     static void d64lib_unit_test_method_initialize();
-    static void d64lib_unit_test_method_cleanup();
+    static void d64lib_unit_test_method_cleanup(d64& disk);
 
     static void d64lib_unit_test_method_initialize()
     {
     }
 
-    static void d64lib_unit_test_method_cleanup()
+    static void d64lib_unit_test_method_cleanup(d64& disk)
     {
+        if (saveDiskImages) {
+            auto name = std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()) + ".d64";
+            disk.save(name.c_str());
+        }
     }
 
     std::string getPaddingString(std::string const& str, int n)
@@ -77,10 +83,8 @@ namespace d64lib_unit_test
         d64 disk;
         allocation_helper(&disk);
 
-        disk.save("sector_allocation_test.d64");
-        d64lib_unit_test_method_cleanup();
+        d64lib_unit_test_method_cleanup(disk);
     }
-
 
     TEST(d64lib_unit_test, sector_allocation_40_test)
     {
@@ -89,10 +93,8 @@ namespace d64lib_unit_test
         d64 disk(diskType::forty_track);
         allocation_helper(&disk);
 
-        disk.save("sector_allocation_40_test.d64");
-        d64lib_unit_test_method_cleanup();
+        d64lib_unit_test_method_cleanup(disk);
     }
-
 
     TEST(d64lib_unit_test, create_unit_test)
     {
@@ -104,11 +106,10 @@ namespace d64lib_unit_test
         auto dir = disk.directory();
         EXPECT_TRUE(dir.size() == 0);
         EXPECT_TRUE(disk.verifyBAMIntegrity(false, ""));
-        EXPECT_EQ(disk.getFreeSectorCount(), (D64_DISK35_SZ / SECTOR_SIZE) - 
-            disk.SECTORS_PER_TRACK[DIRECTORY_TRACK -1]);
+        EXPECT_EQ(disk.getFreeSectorCount(), (D64_DISK35_SZ / SECTOR_SIZE) -
+            disk.SECTORS_PER_TRACK[DIRECTORY_TRACK - 1]);
 
-        disk.save("create_unit_test.d64");
-        d64lib_unit_test_method_cleanup();
+        d64lib_unit_test_method_cleanup(disk);
     }
 
 
@@ -122,13 +123,12 @@ namespace d64lib_unit_test
         auto dir = disk.directory();
         EXPECT_TRUE(dir.size() == 0);
         EXPECT_TRUE(disk.verifyBAMIntegrity(false, ""));
-        EXPECT_EQ(disk.getFreeSectorCount(), (D64_DISK40_SZ / SECTOR_SIZE) - 
+        EXPECT_EQ(disk.getFreeSectorCount(), (D64_DISK40_SZ / SECTOR_SIZE) -
             disk.SECTORS_PER_TRACK[DIRECTORY_TRACK - 1]);
 
         disk.save("create_40_unit_test.d64");
-        d64lib_unit_test_method_cleanup();
+        d64lib_unit_test_method_cleanup(disk);
     }
-
 
     TEST(d64lib_unit_test, addrelfile_test)
     {
@@ -138,16 +138,15 @@ namespace d64lib_unit_test
 
         std::vector<uint8_t> rel_file;
         for (auto record = 0; record < NUM_RECORDS; ++record) {
-            std::string rec =  getPaddingString(std::string("RECORD ") + std::to_string(record + 1), RECORD_SIZE);
+            std::string rec = getPaddingString(std::string("RECORD ") + std::to_string(record + 1), RECORD_SIZE);
             rel_file.insert(rel_file.end(), rec.begin(), rec.end());
         }
 
         d64 disk;
-        auto added = disk.addFile("RELFILE", FileTypes::REL,  rel_file, RECORD_SIZE);
+        auto added = disk.addFile("RELFILE", FileTypes::REL, rel_file, RECORD_SIZE);
         EXPECT_TRUE(added);
 
-        disk.save("addrelfile_test.d64");
-        d64lib_unit_test_method_cleanup();
+        d64lib_unit_test_method_cleanup(disk);
     }
 
     TEST(d64lib_unit_test, readrelfile_test)
@@ -173,8 +172,7 @@ namespace d64lib_unit_test
             EXPECT_EQ(rel_file, readrelfile.value());
         }
 
-        disk.save("readrelfile_test.d64");
-        d64lib_unit_test_method_cleanup();
+        d64lib_unit_test_method_cleanup(disk);
     }
 
     TEST(d64lib_unit_test, large_file_unit_test)
@@ -199,10 +197,8 @@ namespace d64lib_unit_test
                 EXPECT_TRUE(readfile.value()[i] == big_file[i]);
             }
         }
-        disk.save("large_file_unit_test.d64");
-        d64lib_unit_test_method_cleanup();
+        d64lib_unit_test_method_cleanup(disk);
     }
-
 
     TEST(d64lib_unit_test, add_file_unit_test)
     {
@@ -233,10 +229,8 @@ namespace d64lib_unit_test
                 EXPECT_TRUE(readfile.value() == prog);
             }
         }
-        disk.save("add_file_unit_test.d64");
-        d64lib_unit_test_method_cleanup();
+        d64lib_unit_test_method_cleanup(disk);
     }
-
 
     TEST(d64lib_unit_test, extract_file_unit_test)
     {
@@ -263,14 +257,374 @@ namespace d64lib_unit_test
         }
 
         for (auto& filename : files) {
-            std::cout << "File " << filename << "\n";
             auto extracted = disk.extractFile(filename);
             EXPECT_TRUE(extracted);
             if (extracted) {
                 std::remove((filename + ".prg").c_str());
             }
-        }        
-        disk.save("extract_file_unit_test.d64");
-        d64lib_unit_test_method_cleanup();
+        }
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+
+    // Stub test functions for all public methods in the d64 class
+
+    TEST(d64lib_unit_test, constructor_default_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, constructor_with_type_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk(diskType::forty_track);
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, constructor_with_filename_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        EXPECT_ANY_THROW(d64 disk("testingthediskyes.d64"));
+
+        // d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, formatDisk_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        disk.formatDisk("NEW DISK");
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, rename_disk_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        bool result = disk.rename_disk("TEST DISK");
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, diskname_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        std::string name = disk.diskname();
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, findFile_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        auto fileEntry = disk.findFile("FILENAME");
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, addFile_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        std::vector<uint8_t> fileData = { 0x01, 0x02, 0x03 };
+        bool result = disk.addFile("FILENAME", FileTypes::PRG, fileData);
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, removeFile_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        bool result = disk.removeFile("FILENAME");
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, renameFile_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        EXPECT_ANY_THROW(bool result = disk.renameFile("OLDNAME", "NEWNAME"));
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, extractFile_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+
+
+        EXPECT_ANY_THROW(bool result = disk.extractFile("FILENAME"));
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, save_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        bool result = disk.save("test.d64");
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, load_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        bool result = disk.load("test.d64");
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, calcOffset_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        int offset = disk.calcOffset(1, 0);
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, writeByte_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        bool result = disk.writeByte(1, 0, 0, 0xAA);
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, writeSector_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        std::vector<uint8_t> bytes = { 0xAA, 0xBB, 0xCC };
+        EXPECT_ANY_THROW(bool result = disk.writeSector(1, 0, bytes));
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, readByte_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        auto byte = disk.readByte(1, 0, 0);
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, readSector_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        auto sector = disk.readSector(1, 0);
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, freeSector_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        bool result = disk.freeSector(1, 0);
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, allocateSector_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        bool result = disk.allocateSector(1, 0);
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, findAndAllocateFreeSector_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        int track, sector;
+        bool result = disk.findAndAllocateFreeSector(track, sector);
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, readFile_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        EXPECT_ANY_THROW(auto fileData = disk.readFile("FILENAME"));
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, getFreeSectorCount_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        uint16_t freeSectors = disk.getFreeSectorCount();
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, compactDirectory_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        bool result = disk.compactDirectory();
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, verifyBAMIntegrity_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        bool result = disk.verifyBAMIntegrity(false, "");
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, reorderDirectory_compare_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        bool result = disk.reorderDirectory([](const Directory_Entry& a, const Directory_Entry& b)
+            {
+                return std::string(a.file_name) < std::string(b.file_name);
+            });
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, reorderDirectory_vector_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        std::vector<Directory_Entry> files;
+        bool result = disk.reorderDirectory(files);
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, reorderDirectory_fileOrder_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        std::vector<std::string> fileOrder;
+        bool result = disk.reorderDirectory(fileOrder);
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, movefileFirst_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        bool result = disk.movefileFirst("FILENAME");
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, lockfile_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        EXPECT_ANY_THROW (bool result = disk.lockfile("FILENAME", true));
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, directory_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        d64 disk;
+        auto dir = disk.directory();
+        // Add assertions here
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, Trim_test)
+    {
+        d64lib_unit_test_method_initialize();
+
+        const char filename[FILE_NAME_SZ] = "FILENAME";
+        std::string trimmed = d64::Trim(filename);
+        // Add assertions here
+
+        d64 disk;
+        d64lib_unit_test_method_cleanup(disk);
     }
 }

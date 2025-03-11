@@ -55,22 +55,20 @@ d64::d64(std::string name)
 void d64::init_disk()
 {
     int sz = 0;
-    if (disktype == thirty_five_track) {
-        TRACKS = TRACKS_35;
-        sz = D64_DISK35_SZ;
-    }
-    else if (disktype == forty_track) {
-        TRACKS = TRACKS_40;
-        sz = D64_DISK40_SZ;
-    }
-    else {
-        throw std::runtime_error("Invalid Disk type");
+    switch (disktype) {
+        case thirty_five_track:
+            TRACKS = TRACKS_35;
+            sz = D64_DISK35_SZ;
+            break;
+        case forty_track:
+            TRACKS = TRACKS_40;
+            sz = D64_DISK40_SZ;
+            break;
+        default:
+            throw std::runtime_error("Invalid Disk type");
     }
     data.resize(sz, 0x01);
-
-    std::fill_n(lastSectorUsed.begin(), TRACKS_40, -1);
-
-    // create a new disk
+    std::fill_n(lastSectorUsed.begin(), TRACKS_40, 1);
     formatDisk("NEW DISK");
 }
 
@@ -78,7 +76,7 @@ void d64::init_disk()
 inline int d64::calcOffset(int track, int sector) const
 {
     if (!isValidTrackSector(track, sector)) {
-        throw std::runtime_error("Invalid Tack and Sector TRACK:" + std::to_string(track) + " SECTOR:" + std::to_string(sector));
+        throw std::runtime_error("Invalid Track and Sector TRACK:" + std::to_string(track) + " SECTOR:" + std::to_string(sector));
     }
     return TRACK_OFFSETS[track - 1] + sector * SECTOR_SIZE;
 }
@@ -161,14 +159,9 @@ bool d64::writeSector(int track, int sector, std::vector<uint8_t> bytes)
         }
         return writeData(track, sector, bytes, 0);
     }
-    catch (const std::invalid_argument& e) {
-        std::cerr << "Invalid argument: " << e.what() << std::endl;
-    }
-    catch (const std::runtime_error& e) {
-        std::cerr << "Runtime error: " << e.what() << std::endl;
-    }
     catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
+        throw; // Rethrow the exception
     }
     return false;
 }
@@ -234,35 +227,35 @@ std::optional<Directory_EntryPtr> d64::findEmptyDirectorySlot()
 
     while (dir_track != 0) {
         Directory_SectorPtr dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
-        for (auto& fileEntry: dirSectorPtr->fileEntry) {
-
-            // see if slot is free
+        for (auto& fileEntry : dirSectorPtr->fileEntry) {
             if (!fileEntry.file_type.closed) {
                 return &fileEntry;
             }
         }
-        // get the next directory track/sector
         dir_track = dirSectorPtr->next.track;
         dir_sector = dirSectorPtr->next.sector;
 
-        // check if there is another allocated directory sector if so go to it
         if (dir_track == 0 || dir_track > TRACKS || dir_sector < 0 || dir_sector > SECTORS_PER_TRACK[dir_track - 1]) {
-
-            if (!findAndAllocateFreeSector(dir_track, dir_sector)) {
-                throw std::runtime_error("Disk full. Unable to find directoy slot");
+            if (!allocateNewDirectorySector(dir_track, dir_sector, dirSectorPtr)) {
+                throw std::runtime_error("Disk full. Unable to find directory slot");
             }
-            dirSectorPtr->next.track = dir_track;
-            dirSectorPtr->next.sector = dir_sector;
-            dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
-            // clear out the sector
-            memset(dirSectorPtr, 0, SECTOR_SIZE);
-
-            // mark as last directory sector
-            dirSectorPtr->next.track = 0;
-            dirSectorPtr->next.sector = 0xFF;
         }
     }
     return std::nullopt;
+}
+
+bool d64::allocateNewDirectorySector(int& dir_track, int& dir_sector, Directory_SectorPtr& dirSectorPtr)
+{
+    if (!findAndAllocateFreeSector(dir_track, dir_sector)) {
+        return false;
+    }
+    dirSectorPtr->next.track = dir_track;
+    dirSectorPtr->next.sector = dir_sector;
+    dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
+    memset(dirSectorPtr, 0, SECTOR_SIZE);
+    dirSectorPtr->next.track = 0;
+    dirSectorPtr->next.sector = 0xFF;
+    return true;
 }
 
 /// <summary>
@@ -449,7 +442,6 @@ std::optional<std::vector<SideSectorPtr>> d64::createSideSectors(const std::vect
         }
     }
 
-    // Add list to each side sector
     for (auto& sideSectors : sideSectorList) {
         std::copy_n(first->side_sectors, sideCount, sideSectors->side_sectors);
     }
@@ -1264,7 +1256,6 @@ bool d64::reorderDirectory(std::vector<Directory_Entry>& files)
     if (currentFiles == files)
         return false;  // No need to rewrite if already in the correct order
 
-    // Rewrite directory only if order changed
     int dir_track = DIRECTORY_TRACK;
     int dir_sector = DIRECTORY_SECTOR;
     auto dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
@@ -1273,11 +1264,9 @@ bool d64::reorderDirectory(std::vector<Directory_Entry>& files)
     while (dir_track != 0 && index < files.size()) {
         std::fill_n(reinterpret_cast<uint8_t*>(dirSectorPtr), SECTOR_SIZE, 0); // Clear sector
 
-        auto len = std::min(FILES_PER_SECTOR, static_cast<int>(files.size() - 1));
-        std::copy_n(files.begin(), len, dirSectorPtr->fileEntry);
-        //for (auto i = 0; i < FILES_PER_SECTOR && index < files.size(); ++i, ++index) {
-        //    dirSectorPtr->fileEntry[i] = files[index];
-        //}
+        auto len = std::min(FILES_PER_SECTOR, static_cast<int>(files.size() - index));
+        std::copy_n(files.begin() + index, len, dirSectorPtr->fileEntry);
+        index += len;
 
         dir_track = dirSectorPtr->next.track;
         dir_sector = dirSectorPtr->next.sector;
