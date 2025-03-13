@@ -56,11 +56,11 @@ void d64::init_disk()
 {
     int sz = 0;
     switch (disktype) {
-        case thirty_five_track:
+        case diskType::thirty_five_track:
             TRACKS = TRACKS_35;
             sz = D64_DISK35_SZ;
             break;
-        case forty_track:
+        case diskType::forty_track:
             TRACKS = TRACKS_40;
             sz = D64_DISK40_SZ;
             break;
@@ -126,8 +126,8 @@ void d64::initBAM(std::string_view name)
 bool d64::rename_disk(std::string_view name) const
 {
     auto len = std::min(name.size(), static_cast<size_t>(DISK_NAME_SZ));
-    std::copy_n(name.begin(), len, bamPtr->disk_name);
-    std::fill(bamPtr->disk_name + len, bamPtr->disk_name + DISK_NAME_SZ, static_cast<char>(A0_VALUE));
+    std::copy_n(name.begin(), len, diskBamPtr->diskName);
+    std::fill(diskBamPtr->diskName + len, diskBamPtr->diskName + DISK_NAME_SZ, static_cast<char>(A0_VALUE));
     return true;
 }
 
@@ -220,13 +220,13 @@ std::optional<std::vector<uint8_t>> d64::readSector(int track, int sector)
 /// This will create a new directory sector if needed
 /// </summary>
 /// <returns>optional Directory_EntryPtr to free slot</returns>
-std::optional<Directory_EntryPtr> d64::findEmptyDirectorySlot()
+std::optional<directoryEntryPtr> d64::findEmptyDirectorySlot()
 {
     auto dir_track = DIRECTORY_TRACK;
     auto dir_sector = DIRECTORY_SECTOR;
 
     while (dir_track != 0) {
-        Directory_SectorPtr dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
+        directorySectorPtr dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
         for (auto& fileEntry : dirSectorPtr->fileEntry) {
             if (!fileEntry.file_type.closed) {
                 return &fileEntry;
@@ -244,7 +244,7 @@ std::optional<Directory_EntryPtr> d64::findEmptyDirectorySlot()
     return std::nullopt;
 }
 
-bool d64::allocateNewDirectorySector(int& dir_track, int& dir_sector, Directory_SectorPtr& dirSectorPtr)
+bool d64::allocateNewDirectorySector(int& dir_track, int& dir_sector, directorySectorPtr& dirSectorPtr)
 {
     if (!findAndAllocateFreeSector(dir_track, dir_sector)) {
         return false;
@@ -265,7 +265,7 @@ bool d64::allocateNewDirectorySector(int& dir_track, int& dir_sector, Directory_
 /// <param name="sector">sector numbe</param>
 /// <param name="side">pointer to SideSector</param>
 /// <returns>true on success</returns>
-bool d64::allocateSideSector(int& track, int& sector, SideSectorPtr& side)
+bool d64::allocateSideSector(int& track, int& sector, sideSectorPtr& side)
 {
     if (!findAndAllocateFreeSector(track, sector)) return false;
     side = getSideSectorPtr(track, sector);
@@ -280,7 +280,7 @@ bool d64::allocateSideSector(int& track, int& sector, SideSectorPtr& side)
 /// <param name="sector">sector number</param>
 /// <param name="sectorPtr">pointer to Sector</param>
 /// <returns>true on success</returns>
-bool d64::allocateDataSector(int& track, int& sector, SectorPtr& sectorPtr)
+bool d64::allocateDataSector(int& track, int& sector, sectorPtr& sectorPtr)
 {
     if (!findAndAllocateFreeSector(track, sector)) return false;
     sectorPtr = getSectorPtr(track, sector);
@@ -296,7 +296,7 @@ bool d64::allocateDataSector(int& track, int& sector, SectorPtr& sectorPtr)
 /// <param name="fileData">data to write</param>
 /// <param name="offset">offset of data</param>
 /// <param name="bytesLeft">number of bytes left to write</param>
-void d64::writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft)
+void d64::writeDataToSector(sectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft)
 {
     int len = std::min(static_cast<int>(sizeof(sectorPtr->data)), bytesLeft);
     std::copy_n(fileData.begin() + offset, len, sectorPtr->data.begin());
@@ -318,7 +318,7 @@ void d64::writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fil
 /// <param name="fileData">data to the file</param>
 /// <returns>true if successful</returns>
 /// <summary>
-bool d64::addFile(std::string_view filename, FileType type, const std::vector<uint8_t>& fileData, int recordSize)
+bool d64::addFile(std::string_view filename, c64FileType type, const std::vector<uint8_t>& fileData, int recordSize)
 {
     // Validate inputs
     if (filename.empty() || fileData.empty()) {
@@ -364,9 +364,9 @@ bool d64::findAndAllocateFirstSector(int& start_track, int& start_sector)
 /// <param name="start_sector">starting sector></param>
 /// <param name="fileData">data to write</param>
 /// <returns>vector of allocated sectors</returns>
-std::vector<TrackSector> d64::writeFileDataToSectors(int start_track, int start_sector, const std::vector<uint8_t>& fileData)
+std::vector<trackSector> d64::writeFileDataToSectors(int start_track, int start_sector, const std::vector<uint8_t>& fileData)
 {
-    std::vector<TrackSector> allocatedSectors;
+    std::vector<trackSector> allocatedSectors;
     int next_track = start_track;
     int next_sector = start_sector;
     int offset = 0;
@@ -403,12 +403,12 @@ std::vector<TrackSector> d64::writeFileDataToSectors(int start_track, int start_
 /// <param name="allocatedSectors">list of file sectors</param>
 /// <param name="record_size">size of each record</param>
 /// <returns>list of side sectors</returns>
-std::optional<std::vector<SideSectorPtr>> d64::createSideSectors(const std::vector<TrackSector>& allocatedSectors, uint8_t record_size)
+std::optional<std::vector<sideSectorPtr>> d64::createSideSectors(const std::vector<trackSector>& allocatedSectors, uint8_t record_size)
 {
     int ssecTrack, ssecSector;
-    SideSectorPtr sideSector{};
+    sideSectorPtr sideSector{};
 
-    std::vector<SideSectorPtr> sideSectorList;
+    std::vector<sideSectorPtr> sideSectorList;
     int block = 0;
     int sideCount = 0;
     int chainCount = 0;
@@ -419,8 +419,8 @@ std::optional<std::vector<SideSectorPtr>> d64::createSideSectors(const std::vect
     sideSector->recordsize = record_size;
     sideSector->next = { 0, 16 };
     sideSector->block = block++;
-    SideSectorPtr first = sideSector;
-    first->side_sectors[sideCount++] = { ssecTrack, ssecSector };
+    sideSectorPtr first = sideSector;
+    first->sideSectors[sideCount++] = { ssecTrack, ssecSector };
 
     for (const auto& ts : allocatedSectors) {
         if (chainCount < SIDE_SECTOR_CHAIN_SZ) {
@@ -432,7 +432,7 @@ std::optional<std::vector<SideSectorPtr>> d64::createSideSectors(const std::vect
                 throw std::runtime_error("Exceeded maximum number of side sectors (6)");
             }
             if (!allocateSideSector(ssecTrack, ssecSector, sideSector)) return std::nullopt;
-            first->side_sectors[sideCount++] = { ssecTrack, ssecSector };
+            first->sideSectors[sideCount++] = { ssecTrack, ssecSector };
             sideSectorList.back()->next = { ssecTrack, ssecSector };
             sideSector->block = block++;
             sideSector->recordsize = record_size;
@@ -443,7 +443,7 @@ std::optional<std::vector<SideSectorPtr>> d64::createSideSectors(const std::vect
     }
 
     for (auto& sideSectors : sideSectorList) {
-        std::copy_n(first->side_sectors, sideCount, sideSectors->side_sectors);
+        std::copy_n(first->sideSectors, sideCount, sideSectors->sideSectors);
     }
     return sideSectorList;
 }
@@ -457,7 +457,7 @@ std::optional<std::vector<SideSectorPtr>> d64::createSideSectors(const std::vect
 /// <param name="start_sector">first sector</param>
 /// <param name="allocated_sectors">number of sectors</param>
 /// <returns>true on success</returns>
-bool d64::createDirectoryEntry(std::string_view filename, FileType type, int start_track, int start_sector, const std::vector<TrackSector>& allocatedSectors, uint8_t record_size)
+bool d64::createDirectoryEntry(std::string_view filename, c64FileType type, int start_track, int start_sector, const std::vector<trackSector>& allocatedSectors, uint8_t record_size)
 {
     auto fileEntry = findEmptyDirectorySlot();
     if (!fileEntry.has_value()) {
@@ -473,25 +473,25 @@ bool d64::createDirectoryEntry(std::string_view filename, FileType type, int sta
     std::fill(fileEntry.value()->file_name + len, fileEntry.value()->file_name + FILE_NAME_SZ, static_cast<char>(A0_VALUE));
 
     // create side sectors for .REL files
-    if (type.type == FileTypes::REL) {
+    if (type.type == d64FileTypes::REL) {
         auto sideSectorList = createSideSectors(allocatedSectors, record_size);
         if (!sideSectorList.has_value() || sideSectorList.value().size() < 1) {
             throw std::runtime_error("Error: Unable to create side sector list");
         }
-        fileEntry.value()->record_length = record_size;
-        fileEntry.value()->side.track = sideSectorList.value()[0]->side_sectors[0].track;
-        fileEntry.value()->side.sector = sideSectorList.value()[0]->side_sectors[0].sector;
+        fileEntry.value()->recordLength = record_size;
+        fileEntry.value()->side.track = sideSectorList.value()[0]->sideSectors[0].track;
+        fileEntry.value()->side.sector = sideSectorList.value()[0]->sideSectors[0].sector;
     }
     else {
-        fileEntry.value()->record_length = 0;
+        fileEntry.value()->recordLength = 0;
         fileEntry.value()->side.track = 0;
         fileEntry.value()->side.sector = 0;
     }
 
     fileEntry.value()->replace.track = fileEntry.value()->start.track;
     fileEntry.value()->replace.sector = fileEntry.value()->start.sector;
-    fileEntry.value()->file_size[0] = allocatedSectors.size() & 0xFF;
-    fileEntry.value()->file_size[1] = (allocatedSectors.size() & 0xFF00) >> 8;
+    fileEntry.value()->fileSize[0] = allocatedSectors.size() & 0xFF;
+    fileEntry.value()->fileSize[1] = (allocatedSectors.size() & 0xFF00) >> 8;
 
     return true;
 }
@@ -527,7 +527,7 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
     // **Step 2: Scan directory for used sectors**
     auto dir_track = DIRECTORY_TRACK;
     auto dir_sector = DIRECTORY_SECTOR;
-    Directory_SectorPtr dirSectorPtr;
+    directorySectorPtr dirSectorPtr;
 
     while (dir_track != 0) {
         dirSectorPtr = getDirectory_SectorPtr(dir_track, dir_sector);
@@ -543,13 +543,13 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
             int sector = entry.start.sector;
             sectorUsage[track - 1][sector] = true;
 
-            if (entry.file_type.type == FileTypes::REL) {
+            if (entry.file_type.type == d64FileTypes::REL) {
                 // get the first location of a side sector
-                TrackSector sidePosition = entry.side;
+                trackSector sidePosition = entry.side;
 
                 // load the side sector 
-                SideSectorPtr side = getSideSectorPtr(sidePosition.track, sidePosition.sector);
-                for (auto side_sectors : side->side_sectors) {
+                sideSectorPtr side = getSideSectorPtr(sidePosition.track, sidePosition.sector);
+                for (auto side_sectors : side->sideSectors) {
                     if (side_sectors.track == 0)
                         break;
 
@@ -649,12 +649,12 @@ bool d64::verifyBAMIntegrity(bool fix, const std::string& logFile)
 /// <returns>true on success</returns>
 bool d64::reorderDirectory(const std::vector<std::string>& fileOrder)
 {
-    std::vector<Directory_Entry> files = directory();
-    std::vector<Directory_Entry> reorderedFiles;
+    std::vector<directoryEntry> files = directory();
+    std::vector<directoryEntry> reorderedFiles;
 
     // **Step 1: Add files in the specified order**
     for (const auto& filename : fileOrder) {
-        auto it = std::find_if(files.begin(), files.end(), [&](const Directory_Entry& entry)
+        auto it = std::find_if(files.begin(), files.end(), [&](const directoryEntry& entry)
             {
                 return Trim(entry.file_name) == filename;
             });
@@ -682,11 +682,11 @@ bool d64::reorderDirectory(const std::vector<std::string>& fileOrder)
 /// <returns>true on success</returns>
 bool d64::compactDirectory()
 {
-    std::vector<Directory_Entry> files;
+    std::vector<directoryEntry> files;
 
     int dir_track = DIRECTORY_TRACK;
     int dir_sector = DIRECTORY_SECTOR;
-    Directory_SectorPtr dirSectorPtr;
+    directorySectorPtr dirSectorPtr;
 
     // **Step 1: Collect all valid directory entries**
     while (dir_track != 0) {
@@ -761,7 +761,7 @@ bool d64::compactDirectory()
 /// </summary>
 /// <param name="filename">file to find</param>
 /// <returns>optional pointer to the fiels directory entry</returns>
-std::optional<Directory_EntryPtr> d64::findFile(std::string_view filename)
+std::optional<directoryEntryPtr> d64::findFile(std::string_view filename)
 {
     try {
         auto dir_track = DIRECTORY_TRACK;
@@ -819,7 +819,7 @@ bool d64::removeFile(std::string_view filename)
             sector = next_sector;
         }
 
-        memset(fileEntry.value(), 0, sizeof(Directory_Entry));
+        memset(fileEntry.value(), 0, sizeof(directoryEntry));
         return true;
     }
     catch (const std::runtime_error& e) {
@@ -861,11 +861,11 @@ bool d64::extractFile(std::string filename)
         throw std::runtime_error("File not found: " + std::string(filename));
     }
 
-    static const std::map<FileTypes, std::string> extMap = {
-        { FileTypes::PRG, ".prg" },
-        { FileTypes::SEQ, ".seq" },
-        { FileTypes::USR, ".usr" },
-        { FileTypes::REL, ".rel" },
+    static const std::map<d64FileTypes, std::string> extMap = {
+        { d64FileTypes::PRG, ".prg" },
+        { d64FileTypes::SEQ, ".seq" },
+        { d64FileTypes::USR, ".usr" },
+        { d64FileTypes::REL, ".rel" },
     };
     auto it = extMap.find(fileEntry.value()->file_type.type);
     if (it == extMap.end()) {
@@ -932,7 +932,7 @@ std::optional<std::vector<uint8_t>> d64::readFile(std::string filename)
 std::string d64::diskname()
 {
     std::string name;
-    for (auto& ch : bamPtr->disk_name) {
+    for (auto& ch : diskBamPtr->diskName) {
         if (ch == static_cast<char>(0xA0)) return name;
         name += ch;
     }
@@ -977,7 +977,7 @@ bool d64::load(std::string filename)
         if (pos != D64_DISK35_SZ && pos != D64_DISK40_SZ) {
             throw std::invalid_argument("Invalid disk size");
         }
-        disktype = (pos == D64_DISK35_SZ) ? thirty_five_track : forty_track;
+        disktype = (pos == D64_DISK35_SZ) ? diskType::thirty_five_track : diskType::forty_track;
 
         // allocate the disk
         init_disk();
@@ -1123,7 +1123,7 @@ bool d64::findAndAllocateFreeSector(int& track, int& sector)
     };
 
     for (auto& t : TRACK_40_SEARCH_ORDER) {
-        if (disktype == thirty_five_track && t > TRACKS_35)
+        if (disktype == diskType::thirty_five_track && t > TRACKS_35)
             continue;
         if (findAndAllocateFreeOnTrack(t, sector)) {
             track = t;
@@ -1165,34 +1165,34 @@ uint16_t d64::getFreeSectorCount()
 void d64::initializeBAMFields(std::string_view name)
 {
     // set directory track and sector
-    bamPtr->dir_start.track = DIRECTORY_TRACK;
-    bamPtr->dir_start.sector = DIRECTORY_SECTOR;
+    diskBamPtr->dir_start.track = DIRECTORY_TRACK;
+    diskBamPtr->dir_start.sector = DIRECTORY_SECTOR;
 
     // set dos version
-    bamPtr->dos_version = DOS_VERSION;
-    bamPtr->unused = 0;
+    diskBamPtr->dos_version = DOS_VERSION;
+    diskBamPtr->unused = 0;
 
     // Initialize disk name
     auto len = std::min(name.size(), static_cast<size_t>(DISK_NAME_SZ));
-    std::copy_n(name.begin(), len, bamPtr->disk_name);
-    std::fill(bamPtr->disk_name + len, bamPtr->disk_name + DISK_NAME_SZ, static_cast<char>(A0_VALUE));
+    std::copy_n(name.begin(), len, diskBamPtr->diskName);
+    std::fill(diskBamPtr->diskName + len, diskBamPtr->diskName + DISK_NAME_SZ, static_cast<char>(A0_VALUE));
 
     // Initialize unused fields
-    bamPtr->a0[0] = A0_VALUE;
-    bamPtr->a0[1] = A0_VALUE;
+    diskBamPtr->a0[0] = A0_VALUE;
+    diskBamPtr->a0[1] = A0_VALUE;
 
     // set the disk id
-    bamPtr->disk_id[0] = A0_VALUE;
-    bamPtr->disk_id[1] = A0_VALUE;
-    bamPtr->unused2 = A0_VALUE;
+    diskBamPtr->diskId[0] = A0_VALUE;
+    diskBamPtr->diskId[1] = A0_VALUE;
+    diskBamPtr->unused2 = A0_VALUE;
 
     // set dos and version
-    bamPtr->dos_type[0] = DOS_TYPE;
-    bamPtr->dos_type[1] = DOS_VERSION;
+    diskBamPtr->dos_type[0] = DOS_TYPE;
+    diskBamPtr->dos_type[1] = DOS_VERSION;
 
     // fill in other unused fields
-    std::fill_n(bamPtr->unused3, UNUSED3_SZ, 0x00);
-    std::fill_n(bamPtr->unused4, UNUSED4_SZ, 0x00);
+    std::fill_n(diskBamPtr->unused3, UNUSED3_SZ, 0x00);
+    std::fill_n(diskBamPtr->unused4, UNUSED4_SZ, 0x00);
 }
 
 /// <summary>
@@ -1215,8 +1215,8 @@ std::string d64::Trim(const char filename[FILE_NAME_SZ])
 /// <returns>true on success</returns>
 bool d64::movefileFirst(std::string file)
 {
-    std::vector<Directory_Entry> files = directory();
-    auto it = std::find_if(files.begin(), files.end(), [&](const Directory_Entry& entry)
+    std::vector<directoryEntry> files = directory();
+    auto it = std::find_if(files.begin(), files.end(), [&](const directoryEntry& entry)
         {
             return Trim(entry.file_name) == file;
         });
@@ -1249,9 +1249,9 @@ bool d64::lockfile(std::string filename, bool lock)
 /// </summary>
 /// <param name="files">vector of directory entries</param>
 /// <returns>true on success</returns>
-bool d64::reorderDirectory(std::vector<Directory_Entry>& files)
+bool d64::reorderDirectory(std::vector<directoryEntry>& files)
 {
-    std::vector<Directory_Entry> currentFiles = directory();
+    std::vector<directoryEntry> currentFiles = directory();
 
     if (currentFiles == files)
         return false;  // No need to rewrite if already in the correct order
@@ -1282,10 +1282,10 @@ bool d64::reorderDirectory(std::vector<Directory_Entry>& files)
 /// </summary>
 /// <param name="compare">function comparer for directory entries</param>
 /// <returns>true on success</returns>
-bool d64::reorderDirectory(std::function<bool(const Directory_Entry&, const Directory_Entry&)> compare)
+bool d64::reorderDirectory(std::function<bool(const directoryEntry&, const directoryEntry&)> compare)
 {
     // get the current directory entries
-    std::vector<Directory_Entry> files = directory();
+    std::vector<directoryEntry> files = directory();
 
     if (files.empty())
         return false; // No files to reorder
@@ -1301,9 +1301,9 @@ bool d64::reorderDirectory(std::function<bool(const Directory_Entry&, const Dire
 /// return the current directory entries
 /// </summary >
 /// <returns>current directory entries</returns>
-std::vector<Directory_Entry> d64::directory()
+std::vector<directoryEntry> d64::directory()
 {
-    std::vector<Directory_Entry> files;
+    std::vector<directoryEntry> files;
 
     int dir_track = DIRECTORY_TRACK;
     int dir_sector = DIRECTORY_SECTOR;
@@ -1329,13 +1329,13 @@ std::vector<Directory_Entry> d64::directory()
 bool d64::validateD64()
 {
     // Check file size
-    auto sz = disktype == thirty_five_track ? D64_DISK35_SZ : D64_DISK40_SZ;
+    auto sz = disktype == diskType::thirty_five_track ? D64_DISK35_SZ : D64_DISK40_SZ;
     if (data.size() != sz) {
         throw std::runtime_error("Error: Invalid .d64 size (" + std::to_string(data.size()) + " bytes)");
     }
 
     // Check BAM structure
-    if (bamPtr->dir_start.track != DIRECTORY_TRACK || bamPtr->dir_start.sector != DIRECTORY_SECTOR) {
+    if (diskBamPtr->dir_start.track != DIRECTORY_TRACK || diskBamPtr->dir_start.sector != DIRECTORY_SECTOR) {
         throw std::runtime_error("Error: BAM structure is invalid (Incorrect directory track/sector)");
     }
 
@@ -1355,9 +1355,9 @@ bool d64::validateD64()
 /// <param name="sideTrack">side track</param>
 /// <param name="sideSector">side sector</param>
 /// <returns>true if successful</returns>
-std::vector<TrackSector> d64::parseSideSectors(int sideTrack, int sideSector)
+std::vector<trackSector> d64::parseSideSectors(int sideTrack, int sideSector)
 {
-    std::vector<TrackSector> recordMap; // Store TrackSector
+    std::vector<trackSector> recordMap; // Store TrackSector
 
     // sideTrack 0 signifies end
     while (sideTrack != 0) {

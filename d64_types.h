@@ -31,7 +31,7 @@ enum diskType {
     forty_track
 };
 
-enum FileTypes : uint8_t {
+enum d64FileTypes : uint8_t {
     DEL = 0,
     SEQ = 1,
     PRG = 2,
@@ -40,72 +40,69 @@ enum FileTypes : uint8_t {
 };
 
 // Track and sector
-struct TrackSector {
+struct trackSector {
 public:
     uint8_t track;
     uint8_t sector;
 
-    bool operator ==(const TrackSector& other) const
+    bool operator ==(const trackSector& other) const
     {
         return track == other.track && sector == other.sector;
     }
 
-    TrackSector(int track, int sector) : track(track), sector(sector) {};
-    TrackSector(uint8_t track, uint8_t sector) : track(track), sector(sector) {};
+    trackSector(int track, int sector) : track(track), sector(sector) {};
+    trackSector(uint8_t track, uint8_t sector) : track(track), sector(sector) {};
 };
 
-struct Sector {
+struct sector {
 public:
-    TrackSector next;
-    std::array<uint8_t, SECTOR_SIZE - sizeof(TrackSector)> data;
+    trackSector next;
+    std::array<uint8_t, SECTOR_SIZE - sizeof(trackSector)> data;
 };
-typedef Sector* SectorPtr;
+typedef sector* sectorPtr;
 
 // side sector
-class SideSector {
+class sideSector {
 public:
-    TrackSector next;                                   // $01 - $02
+    trackSector next;                                   // $01 - $02
     uint8_t block;                                      // $02
     uint8_t recordsize;                                 // $03
-    TrackSector side_sectors[SIDE_SECTOR_ENTRY_SIZE];   // $04 - $0F
-    TrackSector chain[SIDE_SECTOR_CHAIN_SZ];            // chain T/S
+    trackSector sideSectors[SIDE_SECTOR_ENTRY_SIZE];    // $04 - $0F
+    trackSector chain[SIDE_SECTOR_CHAIN_SZ];            // chain T/S
 };
-typedef SideSector* SideSectorPtr;
+typedef sideSector* sideSectorPtr;
 
-class FileType {
+class c64FileType {
 public:
-    FileTypes type : 4;
+    d64FileTypes type : 4;
     uint8_t unused : 1;
     uint8_t replace : 1;
     uint8_t locked : 1;
     uint8_t closed : 1;
 
 public:
-    FileType() : closed(0), locked(0), replace(0), unused(0), type(FileTypes::DEL) {}
-    FileType(bool a, bool l, FileTypes t) : closed(a ? 1 : 0), locked(l ? 1 : 0), unused(0), type(t) {}
-    FileType(FileTypes t) : closed(1), locked(0), unused(0), type(t) {}
-    FileType(uint8_t value) :
+    c64FileType() : closed(0), locked(0), replace(0), unused(0), type(d64FileTypes::DEL) {}
+    c64FileType(bool a, bool l, d64FileTypes t) : closed(a ? 1 : 0), locked(l ? 1 : 0), unused(0), type(t) {}
+    c64FileType(d64FileTypes t) : closed(1), locked(0), unused(0), type(t) {}
+    c64FileType(uint8_t value) :
         closed(value & 0x80),
         locked(value & 0x40),
         replace(value & 0x20),
         unused(value & 0x10),
-        type(static_cast<FileTypes>(value & 0x0F))
+        type(static_cast<d64FileTypes>(value & 0x0F))
     {
     }
 
     operator uint8_t() const { return (closed << 7) | (locked << 6) | (replace << 5) | (unused << 4) | type; }
-    operator FileTypes() const { return type; }
+    operator d64FileTypes() const { return type; }
 };
 
-struct BAM_TRACK_ENTRY {
+struct bamTrackEntry {
 
 public:
     uint8_t free;
-
-private:
     std::array <uint8_t, 3> bytes;
 
-public:
     /// <summary>
     /// test if a sector is used in bam  
     /// </summary>
@@ -160,33 +157,33 @@ public:
 };
 
 // This folows DOLPHIN DOS for 40 tracks
-struct BAM {
-    TrackSector dir_start;                  // $00 - $01
+struct bam {
+    trackSector dir_start;                  // $00 - $01
     uint8_t dos_version;                    // $02          'A' dos version
     uint8_t unused;                         // $03          unused should be 0
-    BAM_TRACK_ENTRY bam_track[TRACKS_35];   // $04 - $8F    BAM to each track
-    char disk_name[DISK_NAME_SZ];           // $90 - $9F    disk name padded with A0
+    bamTrackEntry bamTrack[TRACKS_35];      // $04 - $8F    BAM to each track
+    char diskName[DISK_NAME_SZ];            // $90 - $9F    disk name padded with A0
     uint8_t a0[2];                          // $A0 - $A1    contains A0
-    uint8_t disk_id[2];                     // $A2 - $A3    disk id
+    uint8_t diskId[2];                      // $A2 - $A3    disk id
     uint8_t unused2;                        // $A4          contains A0
     char dos_type[2];                       // $A5 - $A6    '2' 'A'
     uint8_t unused3[UNUSED3_SZ];            // $A7 - $AB    00
     uint8_t unused4[UNUSED4_SZ];            // $AC - $FF    00
 };
-typedef struct BAM* BAMPtr;
+typedef struct bam* bamPtr;
 
-struct Directory_Entry {
-    FileType file_type;                 // $00          file type
-    TrackSector start;                  // $01 - $02    first track  and sector of file entry
+struct directoryEntry {
+    c64FileType file_type;              // $00          file type
+    trackSector start;                  // $01 - $02    first track  and sector of file entry
     char file_name[FILE_NAME_SZ];       // $03 - $12    file name padded with $A0
-    TrackSector side;                   // $13 - $14    first side track/sector .REL file only
-    uint8_t record_length;              // $15          record side track .REL file only
+    trackSector side;                   // $13 - $14    first side track/sector .REL file only
+    uint8_t recordLength;               // $15          record side track .REL file only
     uint8_t unused[4];                  // $16 - $19    unused
-    TrackSector replace;                // $1A - $1B    track / sector of replacement file during @save
-    uint8_t file_size[2];               // $1C - $1D    low byte high byte for file size
+    trackSector replace;                // $1A - $1B    track / sector of replacement file during @save
+    uint8_t fileSize[2];                // $1C - $1D    low byte high byte for file size
     uint8_t padd[2];                    // $1E - $1F    undocumented padd
 
-    bool operator==(const Directory_Entry& other) const
+    bool operator==(const directoryEntry& other) const
     {
         return (uint8_t)file_type == (uint8_t)other.file_type &&
             start.track == other.start.track &&
@@ -194,23 +191,23 @@ struct Directory_Entry {
             std::memcmp(file_name, other.file_name, FILE_NAME_SZ) == 0 &&
             side.track == other.side.track &&
             side.sector == other.side.sector &&
-            record_length == other.record_length &&
+            recordLength == other.recordLength &&
             std::memcmp(unused, other.unused, sizeof(unused)) == 0 &&
             replace.track == other.replace.track &&
             replace.sector == other.replace.sector &&
-            std::memcmp(file_size, other.file_size, sizeof(file_size)) == 0;
+            std::memcmp(fileSize, other.fileSize, sizeof(fileSize)) == 0;
     }
-    bool operator!=(const Directory_Entry& other) const
+    bool operator!=(const directoryEntry& other) const
     {
         return !(*this == other);
     }
 };
-typedef struct Directory_Entry* Directory_EntryPtr;
+typedef struct directoryEntry* directoryEntryPtr;
 
-struct Directory_Sector {
-    TrackSector next;
-    Directory_Entry fileEntry[FILES_PER_SECTOR];
+struct directorySector {
+    trackSector next;
+    directoryEntry fileEntry[FILES_PER_SECTOR];
 };
-typedef struct Directory_Sector* Directory_SectorPtr;
+typedef struct directorySector* directorySectorPtr;
 
 #pragma pack(pop)

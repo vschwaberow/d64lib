@@ -23,8 +23,8 @@ public:
     void formatDisk(std::string_view name);
     bool rename_disk(std::string_view name) const;
     std::string diskname();
-    std::optional<Directory_EntryPtr> findFile(std::string_view filename);
-    bool addFile(std::string_view filename, FileType type, const std::vector<uint8_t>& fileData, int recirdSize = 0);
+    std::optional<directoryEntryPtr> findFile(std::string_view filename);
+    bool addFile(std::string_view filename, c64FileType type, const std::vector<uint8_t>& fileData, int recirdSize = 0);
     bool removeFile(std::string_view filename);
     bool renameFile(std::string_view oldfilename, std::string_view newfilename);
     bool extractFile(std::string filename);
@@ -42,12 +42,12 @@ public:
     uint16_t getFreeSectorCount();
     bool compactDirectory();
     bool verifyBAMIntegrity(bool fix, const std::string& logFile);
-    bool reorderDirectory(std::function<bool(const Directory_Entry&, const Directory_Entry&)> compare);
-    bool reorderDirectory(std::vector<Directory_Entry>& files);
+    bool reorderDirectory(std::function<bool(const directoryEntry&, const directoryEntry&)> compare);
+    bool reorderDirectory(std::vector<directoryEntry>& files);
     bool reorderDirectory(const std::vector<std::string>& fileOrder);
     bool movefileFirst(std::string file);
     bool lockfile(std::string file, bool lock);
-    std::vector<Directory_Entry> directory();
+    std::vector<directoryEntry> directory();
     static std::string Trim(const char filename[FILE_NAME_SZ]);
 
     int TRACKS;
@@ -68,60 +68,60 @@ public:
         0x25600, 0x26700, 0x27800, 0x28900, 0x29A00, 0x2AB00, 0x2BC00, 0x2CD00, 0x2DE00, 0x2EF00
     };
 
-    inline BAM_TRACK_ENTRY* bamtrack(int t)
+    inline bamTrackEntry* bamtrack(int t)
     {
         return (t < TRACKS_35) ?
             &bamTrackPtr[(t)] :
             &bamExtraTrackPtr[((t)-TRACKS_35)];
     }
-    inline SectorPtr getSectorPtr(uint8_t track, uint8_t sector)
+    inline sectorPtr getSectorPtr(uint8_t track, uint8_t sector)
     {
-        return reinterpret_cast<SectorPtr>(&data[calcOffset(track, sector)]);
+        return reinterpret_cast<sectorPtr>(&data[calcOffset(track, sector)]);
     }
-    inline TrackSector* getTrackSectorPtr(uint8_t track, uint8_t sector)
+    inline trackSector* getTrackSectorPtr(uint8_t track, uint8_t sector)
     {
-        return reinterpret_cast<TrackSector*>(&data[calcOffset(track, sector)]);
+        return reinterpret_cast<trackSector*>(&data[calcOffset(track, sector)]);
     }
-    inline SideSectorPtr getSideSectorPtr(uint8_t track, uint8_t sector)
+    inline sideSectorPtr getSideSectorPtr(uint8_t track, uint8_t sector)
     {
-        return reinterpret_cast<SideSectorPtr>(&data[calcOffset(track, sector)]);
+        return reinterpret_cast<sideSectorPtr>(&data[calcOffset(track, sector)]);
     }
-    inline Directory_SectorPtr getDirectory_SectorPtr(const int& track, const int& sector)
+    inline directorySectorPtr getDirectory_SectorPtr(const int& track, const int& sector)
     {
-        return reinterpret_cast<Directory_SectorPtr>(&data[calcOffset(track, sector)]);
+        return reinterpret_cast<directorySectorPtr>(&data[calcOffset(track, sector)]);
     }
 
 private:
     static constexpr int INTERLEAVE = 10;
     std::array<int, TRACKS_40> lastSectorUsed = { -1 };
-    BAMPtr bamPtr;
-    BAM_TRACK_ENTRY* bamTrackPtr;
-    BAM_TRACK_ENTRY* bamExtraTrackPtr;
-    diskType disktype = thirty_five_track;
+    bamPtr diskBamPtr;
+    bamTrackEntry* bamTrackPtr;
+    bamTrackEntry* bamExtraTrackPtr;
+    diskType disktype = diskType::thirty_five_track;
 
     bool validateD64();
     void initBAM(std::string_view name);
     void initializeBAMFields(std::string_view name);
     bool writeData(int track, int sector, std::vector<uint8_t> bytes, int byteoffset);
-    std::vector<TrackSector> parseSideSectors(int sideTrack, int sideSector);
+    std::vector<trackSector> parseSideSectors(int sideTrack, int sideSector);
     void init_disk();
     bool findAndAllocateFreeOnTrack(int t, int& sector);
-    std::optional<Directory_EntryPtr> findEmptyDirectorySlot();
-    bool allocateSideSector(int& track, int& sector, SideSectorPtr& side);
-    bool allocateDataSector(int& track, int& sector, SectorPtr& sectorPtr);
-    void writeDataToSector(SectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft);
-    std::vector<TrackSector> writeFileDataToSectors(int start_track, int start_sector, const std::vector<uint8_t>& fileData);
-    std::optional<std::vector<SideSectorPtr>> createSideSectors(const std::vector<TrackSector>& allocatedSectors, uint8_t record_size);
-    bool createDirectoryEntry(std::string_view filename, FileType type, int start_track, int start_sector, const std::vector<TrackSector>& allocatedSectors, uint8_t record_size);
+    std::optional<directoryEntryPtr> findEmptyDirectorySlot();
+    bool allocateSideSector(int& track, int& sector, sideSectorPtr& side);
+    bool allocateDataSector(int& track, int& sector, sectorPtr& sectorPtr);
+    void writeDataToSector(sectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft);
+    std::vector<trackSector> writeFileDataToSectors(int start_track, int start_sector, const std::vector<uint8_t>& fileData);
+    std::optional<std::vector<sideSectorPtr>> createSideSectors(const std::vector<trackSector>& allocatedSectors, uint8_t record_size);
+    bool createDirectoryEntry(std::string_view filename, c64FileType type, int start_track, int start_sector, const std::vector<trackSector>& allocatedSectors, uint8_t record_size);
     bool findAndAllocateFirstSector(int& start_track, int& start_sector);
-    bool allocateNewDirectorySector(int& dir_track, int& dir_sector, Directory_SectorPtr& dirSectorPtr);
+    bool allocateNewDirectorySector(int& dir_track, int& dir_sector, directorySectorPtr& dirSectorPtr);
 
     inline void initBAMPtr()
     {
         auto index = calcOffset(DIRECTORY_TRACK, BAM_SECTOR);
-        bamPtr = reinterpret_cast<BAMPtr>(&data[index]);
-        bamTrackPtr = &(bamPtr->bam_track[0]);
-        bamExtraTrackPtr = reinterpret_cast<BAM_TRACK_ENTRY*>(&data[index + 0xAC]);
+        diskBamPtr = reinterpret_cast<bamPtr>(&data[index]);
+        bamTrackPtr = &(diskBamPtr->bamTrack[0]);
+        bamExtraTrackPtr = reinterpret_cast<bamTrackEntry*>(&data[index + 0xAC]);
     }
     bool isValidTrackSector(int track, int sector) const;
 
