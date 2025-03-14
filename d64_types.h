@@ -158,8 +158,8 @@ public:
 
 // This folows DOLPHIN DOS for 40 tracks
 struct bam {
-    trackSector dir_start;                  // $00 - $01
-    uint8_t dos_version;                    // $02          'A' dos version
+    trackSector dirStart;                   // $00 - $01
+    uint8_t dosVersion;                     // $02          'A' dos version
     uint8_t unused;                         // $03          unused should be 0
     bamTrackEntry bamTrack[TRACKS_35];      // $04 - $8F    BAM to each track
     char diskName[DISK_NAME_SZ];            // $90 - $9F    disk name padded with A0
@@ -175,7 +175,7 @@ typedef struct bam* bamPtr;
 struct directoryEntry {
     c64FileType file_type;              // $00          file type
     trackSector start;                  // $01 - $02    first track  and sector of file entry
-    char file_name[FILE_NAME_SZ];       // $03 - $12    file name padded with $A0
+    char fileName[FILE_NAME_SZ];        // $03 - $12    file name padded with $A0
     trackSector side;                   // $13 - $14    first side track/sector .REL file only
     uint8_t recordLength;               // $15          record side track .REL file only
     uint8_t unused[4];                  // $16 - $19    unused
@@ -188,7 +188,7 @@ struct directoryEntry {
         return (uint8_t)file_type == (uint8_t)other.file_type &&
             start.track == other.start.track &&
             start.sector == other.start.sector &&
-            std::memcmp(file_name, other.file_name, FILE_NAME_SZ) == 0 &&
+            std::memcmp(fileName, other.fileName, FILE_NAME_SZ) == 0 &&
             side.track == other.side.track &&
             side.sector == other.side.sector &&
             recordLength == other.recordLength &&

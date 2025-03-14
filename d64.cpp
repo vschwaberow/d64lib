@@ -469,8 +469,8 @@ bool d64::createDirectoryEntry(std::string_view filename, c64FileType type, int 
     fileEntry.value()->start.sector = start_sector;
 
     auto len = std::min(filename.size(), static_cast<size_t>(FILE_NAME_SZ));
-    std::copy_n(filename.begin(), len, fileEntry.value()->file_name);
-    std::fill(fileEntry.value()->file_name + len, fileEntry.value()->file_name + FILE_NAME_SZ, static_cast<char>(A0_VALUE));
+    std::copy_n(filename.begin(), len, fileEntry.value()->fileName);
+    std::fill(fileEntry.value()->fileName + len, fileEntry.value()->fileName + FILE_NAME_SZ, static_cast<char>(A0_VALUE));
 
     // create side sectors for .REL files
     if (type.type == d64FileTypes::REL) {
@@ -656,7 +656,7 @@ bool d64::reorderDirectory(const std::vector<std::string>& fileOrder)
     for (const auto& filename : fileOrder) {
         auto it = std::find_if(files.begin(), files.end(), [&](const directoryEntry& entry)
             {
-                return Trim(entry.file_name) == filename;
+                return Trim(entry.fileName) == filename;
             });
 
         if (it != files.end()) {
@@ -773,7 +773,7 @@ std::optional<directoryEntryPtr> d64::findFile(std::string_view filename)
                 if (fileEntry.file_type.closed == 0) {
                     continue;
                 }
-                std::string entryName(fileEntry.file_name, FILE_NAME_SZ);
+                std::string entryName(fileEntry.fileName, FILE_NAME_SZ);
                 entryName.erase(std::find_if(entryName.begin(), entryName.end(), [](char c) { return c == static_cast<char>(A0_VALUE); }), entryName.end());
                 if (entryName == filename) {
                     return &fileEntry;
@@ -844,8 +844,8 @@ bool d64::renameFile(std::string_view oldfilename, std::string_view newfilename)
         throw std::runtime_error("File not found: " + std::string(oldfilename));
     }
     auto len = std::min(newfilename.size(), static_cast<size_t>(FILE_NAME_SZ));
-    std::copy_n(newfilename.begin(), len, fileEntry.value()->file_name);
-    std::fill(fileEntry.value()->file_name + len, fileEntry.value()->file_name + FILE_NAME_SZ, static_cast<char>(A0_VALUE));
+    std::copy_n(newfilename.begin(), len, fileEntry.value()->fileName);
+    std::fill(fileEntry.value()->fileName + len, fileEntry.value()->fileName + FILE_NAME_SZ, static_cast<char>(A0_VALUE));
     return true;
 }
 
@@ -1165,11 +1165,11 @@ uint16_t d64::getFreeSectorCount()
 void d64::initializeBAMFields(std::string_view name)
 {
     // set directory track and sector
-    diskBamPtr->dir_start.track = DIRECTORY_TRACK;
-    diskBamPtr->dir_start.sector = DIRECTORY_SECTOR;
+    diskBamPtr->dirStart.track = DIRECTORY_TRACK;
+    diskBamPtr->dirStart.sector = DIRECTORY_SECTOR;
 
     // set dos version
-    diskBamPtr->dos_version = DOS_VERSION;
+    diskBamPtr->dosVersion = DOS_VERSION;
     diskBamPtr->unused = 0;
 
     // Initialize disk name
@@ -1218,7 +1218,7 @@ bool d64::movefileFirst(std::string file)
     std::vector<directoryEntry> files = directory();
     auto it = std::find_if(files.begin(), files.end(), [&](const directoryEntry& entry)
         {
-            return Trim(entry.file_name) == file;
+            return Trim(entry.fileName) == file;
         });
 
     if (it == files.end() || it == files.begin())
@@ -1335,7 +1335,7 @@ bool d64::validateD64()
     }
 
     // Check BAM structure
-    if (diskBamPtr->dir_start.track != DIRECTORY_TRACK || diskBamPtr->dir_start.sector != DIRECTORY_SECTOR) {
+    if (diskBamPtr->dirStart.track != DIRECTORY_TRACK || diskBamPtr->dirStart.sector != DIRECTORY_SECTOR) {
         throw std::runtime_error("Error: BAM structure is invalid (Incorrect directory track/sector)");
     }
 

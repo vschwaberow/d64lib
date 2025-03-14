@@ -552,7 +552,7 @@ namespace d64lib_unit_test
         d64 disk;
         bool result = disk.reorderDirectory([](const directoryEntry& a, const directoryEntry& b)
             {
-                return std::string(a.file_name) < std::string(b.file_name);
+                return std::string(a.fileName) < std::string(b.fileName);
             });
         // Add assertions here
 
