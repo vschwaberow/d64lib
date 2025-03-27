@@ -1181,33 +1181,34 @@ uint16_t d64::getFreeSectorCount()
 /// <param name="name"></param>
 void d64::initializeBAMFields(std::string_view name)
 {
-    // set directory track and sector
+    if (!diskBamPtr) {
+        throw std::runtime_error("Invalid BAM pointer");
+    }
+
     diskBamPtr->dirStart.track = DIRECTORY_TRACK;
     diskBamPtr->dirStart.sector = DIRECTORY_SECTOR;
 
-    // set dos version
     diskBamPtr->dosVersion = DOS_VERSION;
     diskBamPtr->unused = 0;
 
-    // Initialize disk name
     auto len = std::min(name.size(), static_cast<size_t>(DISK_NAME_SZ));
-    std::copy_n(name.begin(), len, diskBamPtr->diskName);
-    std::fill(diskBamPtr->diskName + len, diskBamPtr->diskName + DISK_NAME_SZ, static_cast<char>(A0_VALUE));
+    std::fill_n(diskBamPtr->diskName, DISK_NAME_SZ, static_cast<char>(A0_VALUE));
+    if (!name.empty() && len > 0) {
+        for (size_t i = 0; i < len; ++i) {
+            diskBamPtr->diskName[i] = name[i];
+        }
+    }
 
-    // Initialize unused fields
     diskBamPtr->a0[0] = A0_VALUE;
     diskBamPtr->a0[1] = A0_VALUE;
 
-    // set the disk id
     diskBamPtr->diskId[0] = A0_VALUE;
     diskBamPtr->diskId[1] = A0_VALUE;
     diskBamPtr->unused2 = A0_VALUE;
 
-    // set dos and version
     diskBamPtr->dos_type[0] = DOS_TYPE;
     diskBamPtr->dos_type[1] = DOS_VERSION;
 
-    // fill in other unused fields
     std::fill_n(diskBamPtr->unused3, UNUSED3_SZ, 0x00);
     std::fill_n(diskBamPtr->unused4, UNUSED4_SZ, 0x00);
 }
