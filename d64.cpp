@@ -298,14 +298,30 @@ bool d64::allocateDataSector(int& track, int& sector, sectorPtr& sectorPtr)
 /// <param name="bytesLeft">number of bytes left to write</param>
 void d64::writeDataToSector(sectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft)
 {
-    int len = std::min(static_cast<int>(sizeof(sectorPtr->data)), bytesLeft);
-    std::copy_n(fileData.begin() + offset, len, sectorPtr->data.begin());
-    std::fill_n(sectorPtr->data.begin() + len, sizeof(sectorPtr->data) - len, 0);
-    bytesLeft -= len;
-    offset += len;
+    if (!sectorPtr) {
+        throw std::invalid_argument("Invalid null sector pointer");
+    }
+    
+    if (offset < 0 || static_cast<size_t>(offset) >= fileData.size()) {
+        throw std::out_of_range("File data offset out of range: " + std::to_string(offset));
+    }
+    
+    const size_t availableBytes = fileData.size() - static_cast<size_t>(offset);
+    const size_t bufferSize = sizeof(sectorPtr->data);
+    const size_t len = std::min({bufferSize, static_cast<size_t>(bytesLeft), availableBytes});
+    
+    if (len > 0) {
+        std::copy_n(fileData.begin() + offset, len, sectorPtr->data.begin());
+    }
+    
+    std::fill_n(sectorPtr->data.begin() + len, bufferSize - len, 0);
+    
+    bytesLeft -= static_cast<int>(len);
+    offset += static_cast<int>(len);
+    
     if (bytesLeft == 0) {
-        sectorPtr->next.track = 0;          // Mark final track
-        sectorPtr->next.sector = len + 1;   // Mark final sector
+        sectorPtr->next.track = 0;
+        sectorPtr->next.sector = static_cast<uint8_t>(len + 1);
     }
 }
 
