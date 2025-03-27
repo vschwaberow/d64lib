@@ -878,9 +878,26 @@ bool d64::extractFile(std::string filename)
     }
 
     auto ext = extMap.at(fileEntry.value()->file_type.type);
-    std::ofstream outFile((filename + ext).c_str(), std::ios::binary);
-    outFile.write(reinterpret_cast<char*>(fileData->data()), fileData->size());
-    outFile.close();
+    try {
+        std::ofstream outFile((filename + ext).c_str(), std::ios::binary);
+        if (!outFile.is_open()) {
+            throw std::runtime_error("Failed to open output file: " + filename + ext);
+        }
+        
+        outFile.write(reinterpret_cast<char*>(fileData->data()), fileData->size());
+        if (outFile.fail()) {
+            throw std::runtime_error("Failed to write to file: " + filename + ext);
+        }
+        
+        outFile.close();
+        if (outFile.fail()) {
+            throw std::runtime_error("Failed to close file: " + filename + ext);
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error extracting file: " << e.what() << std::endl;
+        return false;
+    }
 
     return true;
 }
