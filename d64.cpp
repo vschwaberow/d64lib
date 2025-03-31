@@ -298,14 +298,30 @@ bool d64::allocateDataSector(int& track, int& sector, sectorPtr& sectorPtr)
 /// <param name="bytesLeft">number of bytes left to write</param>
 void d64::writeDataToSector(sectorPtr sectorPtr, const std::vector<uint8_t>& fileData, int& offset, int& bytesLeft)
 {
-    int len = std::min(static_cast<int>(sizeof(sectorPtr->data)), bytesLeft);
-    std::copy_n(fileData.begin() + offset, len, sectorPtr->data.begin());
-    std::fill_n(sectorPtr->data.begin() + len, sizeof(sectorPtr->data) - len, 0);
-    bytesLeft -= len;
-    offset += len;
+    if (!sectorPtr) {
+        throw std::invalid_argument("Invalid null sector pointer");
+    }
+    
+    if (offset < 0 || static_cast<size_t>(offset) >= fileData.size()) {
+        throw std::out_of_range("File data offset out of range: " + std::to_string(offset));
+    }
+    
+    const size_t availableBytes = fileData.size() - static_cast<size_t>(offset);
+    const size_t bufferSize = sizeof(sectorPtr->data);
+    const size_t len = std::min({bufferSize, static_cast<size_t>(bytesLeft), availableBytes});
+    
+    if (len > 0) {
+        std::copy_n(fileData.begin() + offset, len, sectorPtr->data.begin());
+    }
+    
+    std::fill_n(sectorPtr->data.begin() + len, bufferSize - len, 0);
+    
+    bytesLeft -= static_cast<int>(len);
+    offset += static_cast<int>(len);
+    
     if (bytesLeft == 0) {
-        sectorPtr->next.track = 0;          // Mark final track
-        sectorPtr->next.sector = len + 1;   // Mark final sector
+        sectorPtr->next.track = 0;
+        sectorPtr->next.sector = static_cast<uint8_t>(len + 1);
     }
 }
 
@@ -878,9 +894,26 @@ bool d64::extractFile(std::string filename)
     }
 
     auto ext = extMap.at(fileEntry.value()->file_type.type);
-    std::ofstream outFile((filename + ext).c_str(), std::ios::binary);
-    outFile.write(reinterpret_cast<char*>(fileData->data()), fileData->size());
-    outFile.close();
+    try {
+        std::ofstream outFile((filename + ext).c_str(), std::ios::binary);
+        if (!outFile.is_open()) {
+            throw std::runtime_error("Failed to open output file: " + filename + ext);
+        }
+        
+        outFile.write(reinterpret_cast<char*>(fileData->data()), fileData->size());
+        if (outFile.fail()) {
+            throw std::runtime_error("Failed to write to file: " + filename + ext);
+        }
+        
+        outFile.close();
+        if (outFile.fail()) {
+            throw std::runtime_error("Failed to close file: " + filename + ext);
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error extracting file: " << e.what() << std::endl;
+        return false;
+    }
 
     return true;
 }
@@ -1164,33 +1197,34 @@ uint16_t d64::getFreeSectorCount()
 /// <param name="name"></param>
 void d64::initializeBAMFields(std::string_view name)
 {
-    // set directory track and sector
+    if (!diskBamPtr) {
+        throw std::runtime_error("Invalid BAM pointer");
+    }
+
     diskBamPtr->dirStart.track = DIRECTORY_TRACK;
     diskBamPtr->dirStart.sector = DIRECTORY_SECTOR;
 
-    // set dos version
     diskBamPtr->dosVersion = DOS_VERSION;
     diskBamPtr->unused = 0;
 
-    // Initialize disk name
     auto len = std::min(name.size(), static_cast<size_t>(DISK_NAME_SZ));
-    std::copy_n(name.begin(), len, diskBamPtr->diskName);
-    std::fill(diskBamPtr->diskName + len, diskBamPtr->diskName + DISK_NAME_SZ, static_cast<char>(A0_VALUE));
+    std::fill_n(diskBamPtr->diskName, DISK_NAME_SZ, static_cast<char>(A0_VALUE));
+    if (!name.empty() && len > 0) {
+        for (size_t i = 0; i < len; ++i) {
+            diskBamPtr->diskName[i] = name[i];
+        }
+    }
 
-    // Initialize unused fields
     diskBamPtr->a0[0] = A0_VALUE;
     diskBamPtr->a0[1] = A0_VALUE;
 
-    // set the disk id
     diskBamPtr->diskId[0] = A0_VALUE;
     diskBamPtr->diskId[1] = A0_VALUE;
     diskBamPtr->unused2 = A0_VALUE;
 
-    // set dos and version
     diskBamPtr->dos_type[0] = DOS_TYPE;
     diskBamPtr->dos_type[1] = DOS_VERSION;
 
-    // fill in other unused fields
     std::fill_n(diskBamPtr->unused3, UNUSED3_SZ, 0x00);
     std::fill_n(diskBamPtr->unused4, UNUSED4_SZ, 0x00);
 }
