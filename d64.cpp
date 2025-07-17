@@ -1296,7 +1296,6 @@ bool d64::lockfile(std::string filename, bool lock)
     auto fileEntry = findFile(filename);
     if (!fileEntry.has_value()) {
         throw std::runtime_error("File not found " + filename);
-        return false;
     }
     fileEntry.value()->file_type.locked = lock ? 1 : 0;
     return true;
