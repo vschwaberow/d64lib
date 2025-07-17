@@ -306,20 +306,44 @@ void d64::writeDataToSector(sectorPtr sectorPtr, const std::vector<uint8_t>& fil
         throw std::out_of_range("File data offset out of range: " + std::to_string(offset));
     }
     
+    if (bytesLeft < 0) {
+        throw std::invalid_argument("Invalid negative bytes left value");
+    }
+    
     const size_t availableBytes = fileData.size() - static_cast<size_t>(offset);
-    const size_t bufferSize = sizeof(sectorPtr->data);
+    const size_t bufferSize = sectorPtr->data.size();
     const size_t len = std::min({bufferSize, static_cast<size_t>(bytesLeft), availableBytes});
     
+    if (len > bufferSize) {
+        throw std::out_of_range("Data length exceeds sector buffer size");
+    }
+    
+    if (static_cast<size_t>(offset) > SIZE_MAX - len) {
+        throw std::overflow_error("Offset plus length would overflow");
+    }
+    
     if (len > 0) {
+        if (static_cast<size_t>(offset) + len > fileData.size()) {
+            throw std::out_of_range("Read operation would exceed file data bounds");
+        }
         std::copy_n(fileData.begin() + offset, len, sectorPtr->data.begin());
     }
     
-    std::fill_n(sectorPtr->data.begin() + len, bufferSize - len, 0);
+    if (len < bufferSize) {
+        std::fill_n(sectorPtr->data.begin() + len, bufferSize - len, 0);
+    }
+    
+    if (len > static_cast<size_t>(bytesLeft)) {
+        throw std::invalid_argument("Length exceeds remaining bytes");
+    }
     
     bytesLeft -= static_cast<int>(len);
     offset += static_cast<int>(len);
     
     if (bytesLeft == 0) {
+        if (len > 254) {
+            throw std::out_of_range("Sector length exceeds maximum value");
+        }
         sectorPtr->next.track = 0;
         sectorPtr->next.sector = static_cast<uint8_t>(len + 1);
     }
