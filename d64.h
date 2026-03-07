@@ -39,6 +39,12 @@ public:
     bool allocateSector(const int& track, const int& sector);
     bool findAndAllocateFreeSector(int& track, int& sector);
     std::optional<std::vector<uint8_t>> readFile(std::string filename);
+    std::optional<std::vector<uint8_t>> readRecord(std::string_view filename, int recordNumber);
+    bool writeRecord(std::string_view filename, int recordNumber, const std::vector<uint8_t>& recordData);
+    bool appendRecord(std::string_view filename, const std::vector<uint8_t>& recordData);
+    bool deleteRecord(std::string_view filename, int recordNumber);
+    int getRecordCount(std::string_view filename);
+    int getRecordSize(std::string_view filename);
     uint16_t getFreeSectorCount();
     bool compactDirectory();
     bool verifyBAMIntegrity(bool fix, const std::string& logFile);
@@ -53,7 +59,7 @@ public:
     int TRACKS;
 
     // Constants for D64 format
-    const std::array<int, TRACKS_40> SECTORS_PER_TRACK = {
+    static constexpr std::array<int, TRACKS_40> SECTORS_PER_TRACK = {
         21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, // Tracks 1-17
         19, 19, 19, 19, 19, 19, 19,                                         // Tracks 18-24
         18, 18, 18, 18, 18, 18,                                             // Tracks 25-30
@@ -61,7 +67,7 @@ public:
         17, 17, 17, 17, 17                                                  // Tracks 36-40
     };
 
-    const std::array<int, TRACKS_40> TRACK_OFFSETS = {
+    static constexpr std::array<int, TRACKS_40> TRACK_OFFSETS = {
         0x00000, 0x01500, 0x02A00, 0x03F00, 0x05400, 0x06900, 0x07E00, 0x09300, 0x0A800, 0x0BD00,
         0x0D200, 0x0E700, 0x0FC00, 0x11100, 0x12600, 0x13B00, 0x15000, 0x16500, 0x17800, 0x18B00,
         0x19E00, 0x1B100, 0x1C400, 0x1D700, 0x1EA00, 0x1FC00, 0x20E00, 0x22000, 0x23200, 0x24400,
@@ -115,6 +121,7 @@ private:
     bool createDirectoryEntry(std::string_view filename, c64FileType type, int start_track, int start_sector, const std::vector<trackSector>& allocatedSectors, uint8_t record_size);
     bool findAndAllocateFirstSector(int& start_track, int& start_sector);
     bool allocateNewDirectorySector(int& dir_track, int& dir_sector, directorySectorPtr& dirSectorPtr);
+    bool expandRelFile(std::string_view filename, int requiredBytes);
 
     inline void initBAMPtr()
     {
