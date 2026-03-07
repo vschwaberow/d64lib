@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 add_subdirectory(unittests)
 
 # Add library
-add_library(d64lib d64.cpp d64.h d64_types.h)
+add_library(d64lib d64.cpp d64.h d64_types.h geos.cpp geos.h)
 
 # Export the include directory
 target_include_directories(d64lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -17,4 +17,4 @@ target_link_directories(d64lib PUBLIC ${CMAKE_CURRENT_LINK_DIR})
 
 # Install rules (optional for packaging)
 install(TARGETS d64lib DESTINATION lib)
-install(FILES d64.h DESTINATION include)
+install(FILES d64.h d64_types.h geos.h DESTINATION include)

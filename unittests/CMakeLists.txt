@@ -25,6 +25,7 @@ endif()
 add_executable(
   unittest
   d64unittests.cpp
+  geosunittests.cpp
 )
 
 target_link_libraries(

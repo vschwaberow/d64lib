@@ -627,4 +627,127 @@ namespace d64lib_unit_test
         d64 disk;
         d64lib_unit_test_method_cleanup(disk);
     }
+    
+    TEST(d64lib_unit_test, relfile_extended_read_write_test)
+    {
+        d64lib_unit_test_method_initialize();
+        constexpr int RECORD_SIZE = 64;
+
+        d64 disk;
+        std::vector<uint8_t> initialData(RECORD_SIZE * 5, 0); 
+        bool added = disk.addFile("TESTREL", d64FileTypes::REL, initialData, RECORD_SIZE);
+        EXPECT_TRUE(added);
+        
+        EXPECT_EQ(disk.getRecordCount("TESTREL"), 5);
+        EXPECT_EQ(disk.getRecordSize("TESTREL"), RECORD_SIZE);
+        
+        std::vector<uint8_t> rec3(RECORD_SIZE, 0x33);
+        bool written = disk.writeRecord("TESTREL", 3, rec3);
+        EXPECT_TRUE(written);
+        
+        auto readBack = disk.readRecord("TESTREL", 3);
+        ASSERT_TRUE(readBack.has_value());
+        EXPECT_EQ(readBack.value(), rec3);
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, relfile_append_test)
+    {
+        d64lib_unit_test_method_initialize();
+        constexpr int RECORD_SIZE = 64;
+
+        d64 disk;
+        std::vector<uint8_t> initialData(RECORD_SIZE * 2, 0); 
+        disk.addFile("TESTREL", d64FileTypes::REL, initialData, RECORD_SIZE);
+        
+        EXPECT_EQ(disk.getRecordCount("TESTREL"), 2);
+        
+        std::vector<uint8_t> newRec(RECORD_SIZE, 0xAA);
+        bool appended = disk.appendRecord("TESTREL", newRec);
+        EXPECT_TRUE(appended);
+        
+        EXPECT_EQ(disk.getRecordCount("TESTREL"), 3);
+        
+        auto readBack = disk.readRecord("TESTREL", 3);
+        ASSERT_TRUE(readBack.has_value());
+        EXPECT_EQ(readBack.value(), newRec);
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, relfile_spanning_test)
+    {
+        d64lib_unit_test_method_initialize();
+        constexpr int RECORD_SIZE = 100;
+        
+        // With record size 100, record 1 is 0-99. Record 2 is 100-199. Record 3 is 200-299.
+        // A sector payload has 254 bytes. So record 3 starts at 200, spans across 254 (end of sector 1)
+        // and finishes in sector 2.
+
+        d64 disk;
+        std::vector<uint8_t> initialData(RECORD_SIZE, 0); 
+        disk.addFile("TESTREL", d64FileTypes::REL, initialData, RECORD_SIZE);
+        
+        EXPECT_EQ(disk.getRecordCount("TESTREL"), 1);
+        
+        std::vector<uint8_t> r1(RECORD_SIZE, 0x11);
+        std::vector<uint8_t> r2(RECORD_SIZE, 0x22);
+        std::vector<uint8_t> r3(RECORD_SIZE, 0x33);
+        
+        // This will trigger expansion dynamically
+        EXPECT_TRUE(disk.appendRecord("TESTREL", r1));
+        EXPECT_TRUE(disk.appendRecord("TESTREL", r2));
+        EXPECT_TRUE(disk.appendRecord("TESTREL", r3));
+        
+        EXPECT_EQ(disk.getRecordCount("TESTREL"), 4);
+        
+        auto readR3 = disk.readRecord("TESTREL", 4);
+        ASSERT_TRUE(readR3.has_value());
+        EXPECT_EQ(readR3.value(), r3);
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, relfile_delete_test)
+    {
+        d64lib_unit_test_method_initialize();
+        constexpr int RECORD_SIZE = 64;
+
+        d64 disk;
+        std::vector<uint8_t> initialData(RECORD_SIZE * 5, 0xAA); 
+        disk.addFile("TESTREL", d64FileTypes::REL, initialData, RECORD_SIZE);
+        
+        bool deleted = disk.deleteRecord("TESTREL", 2);
+        EXPECT_TRUE(deleted);
+        
+        auto readBack = disk.readRecord("TESTREL", 2);
+        ASSERT_TRUE(readBack.has_value());
+        EXPECT_EQ(readBack.value()[0], 0xFF);
+        for(size_t i = 1; i < readBack.value().size(); ++i) {
+            EXPECT_EQ(readBack.value()[i], 0x00);
+        }
+
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
+    TEST(d64lib_unit_test, relfile_out_of_bounds_test)
+    {
+        d64lib_unit_test_method_initialize();
+        constexpr int RECORD_SIZE = 64;
+
+        d64 disk;
+        std::vector<uint8_t> initialData(RECORD_SIZE * 2, 0); 
+        disk.addFile("TESTREL", d64FileTypes::REL, initialData, RECORD_SIZE);
+        
+        auto readBack = disk.readRecord("TESTREL", 10);
+        EXPECT_FALSE(readBack.has_value());
+        
+        std::vector<uint8_t> tooSmall(10, 0);
+        bool writeRes = disk.writeRecord("TESTREL", 1, tooSmall);
+        EXPECT_FALSE(writeRes); // wrong size
+        
+        d64lib_unit_test_method_cleanup(disk);
+    }
+
 }
