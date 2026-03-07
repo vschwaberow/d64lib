@@ -3,24 +3,24 @@
 
 #pragma pack(push, 1)
 
-const int TRACKS_35 = 35;
-const int TRACKS_40 = 40;
-const int SECTOR_SIZE = 256;
-const int DISK_NAME_SZ = 16;
-const int FILE_NAME_SZ = 16;
-const int UNUSED3_SZ = 5;
-const int UNUSED4_SZ = 84;
-const int DIR_ENTRY_SZ = 30;
-const int DIRECTORY_TRACK = 18;
-const int DIRECTORY_SECTOR = 1;
-const int TRACK_SECTOR = 0;
-const int BAM_SECTOR = 0;
-const int FILES_PER_SECTOR = 8;
-const int D64_DISK35_SZ = 174848;
-const int D64_DISK40_SZ = 196608;
+inline constexpr int TRACKS_35 = 35;
+inline constexpr int TRACKS_40 = 40;
+inline constexpr int SECTOR_SIZE = 256;
+inline constexpr int DISK_NAME_SZ = 16;
+inline constexpr int FILE_NAME_SZ = 16;
+inline constexpr int UNUSED3_SZ = 5;
+inline constexpr int UNUSED4_SZ = 84;
+inline constexpr int DIR_ENTRY_SZ = 30;
+inline constexpr int DIRECTORY_TRACK = 18;
+inline constexpr int DIRECTORY_SECTOR = 1;
+inline constexpr int TRACK_SECTOR = 0;
+inline constexpr int BAM_SECTOR = 0;
+inline constexpr int FILES_PER_SECTOR = 8;
+inline constexpr int D64_DISK35_SZ = 174848;
+inline constexpr int D64_DISK40_SZ = 196608;
 
-const int SIDE_SECTOR_ENTRY_SIZE = 6;
-const int SIDE_SECTOR_CHAIN_SZ = ((SECTOR_SIZE - 15) / (2));
+inline constexpr int SIDE_SECTOR_ENTRY_SIZE = 6;
+inline constexpr int SIDE_SECTOR_CHAIN_SZ = ((SECTOR_SIZE - 15) / (2));
 
 static constexpr uint8_t A0_VALUE = 0xA0;
 static constexpr uint8_t DOS_VERSION = 'A';

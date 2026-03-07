@@ -1385,22 +1385,24 @@ std::vector<directoryEntry> d64::directory()
 /// <returns>true if valid</returns>
 bool d64::validateD64()
 {
-    // Check file size
     auto sz = disktype == diskType::thirty_five_track ? D64_DISK35_SZ : D64_DISK40_SZ;
     if (data.size() != sz) {
-        throw std::runtime_error("Error: Invalid .d64 size (" + std::to_string(data.size()) + " bytes)");
+        std::cerr << "Error: Invalid .d64 size (" << data.size() << " bytes), expected " << sz << " bytes\n";
+        return false;
     }
 
-    // Check BAM structure
     if (diskBamPtr->dirStart.track != DIRECTORY_TRACK || diskBamPtr->dirStart.sector != DIRECTORY_SECTOR) {
-        throw std::runtime_error("Error: BAM structure is invalid (Incorrect directory track/sector)");
+        std::cerr << "Warning: BAM structure has non-standard directory track/sector ("
+                  << static_cast<int>(diskBamPtr->dirStart.track) << "/"
+                  << static_cast<int>(diskBamPtr->dirStart.sector) << "). "
+                  << "This may be intentional for copy protection or custom formats.\n";
     }
 
-    // Check sector data integrity (optional deeper check)
     auto dir = getTrackSectorPtr(DIRECTORY_TRACK, DIRECTORY_SECTOR);
-    auto valid = dir->track == DIRECTORY_TRACK || (dir->track == 0 && dir->sector == 0xFF);
+    auto valid = (dir->track == DIRECTORY_TRACK || dir->track == 0);
     if (!valid) {
-        throw std::runtime_error("Error: Directory sector does not match expected values");
+        std::cerr << "Warning: Directory sector pointer has non-standard next track (" 
+                  << static_cast<int>(dir->track) << ").\n";
     }
 
     return true;
@@ -1414,25 +1416,21 @@ bool d64::validateD64()
 /// <returns>true if successful</returns>
 std::vector<trackSector> d64::parseSideSectors(int sideTrack, int sideSector)
 {
-    std::vector<trackSector> recordMap; // Store TrackSector
+    std::vector<trackSector> recordMap;
 
-    // sideTrack 0 signifies end
     while (sideTrack != 0) {
         auto sideSectorPtr = getSideSectorPtr(sideTrack, sideSector);
 
-        // Get Next side-sector location
         uint8_t nextTrack = sideSectorPtr->next.track;
         uint8_t nextSector = sideSectorPtr->next.sector;
 
-        // Read record-to-sector mappings
         for (auto i = 0; i < SIDE_SECTOR_CHAIN_SZ; ++i) {
             if (sideSectorPtr->chain[i].track == 0)
-                break;  // End of records
+                break;
 
             recordMap.emplace_back(sideSectorPtr->chain[i]);
         }
 
-        // Move to next side sector
         sideTrack = nextTrack;
         sideSector = nextSector;
     }
@@ -1457,3 +1455,286 @@ bool d64::writeData(int track, int sector, std::vector<uint8_t> bytes, int byteo
     }
     return false;
 }
+
+int d64::getRecordCount(std::string_view filename) {
+    auto fileEntry = findFile(filename);
+    if (!fileEntry.has_value() || fileEntry.value()->file_type.type != d64FileTypes::REL) return 0;
+    
+    int recordLength = fileEntry.value()->recordLength;
+    if (recordLength == 0) return 0;
+    
+    int totalPayloadBytes = 0;
+    trackSector sidePosition = fileEntry.value()->side;
+    
+    while (sidePosition.track != 0) {
+        auto side = getSideSectorPtr(sidePosition.track, sidePosition.sector);
+        for (int i = 0; i < SIDE_SECTOR_CHAIN_SZ; ++i) {
+            if (side->chain[i].track == 0) break;
+            auto dataSectorPos = side->chain[i];
+            auto dataSector = getSectorPtr(dataSectorPos.track, dataSectorPos.sector);
+            if (dataSector->next.track != 0) {
+                totalPayloadBytes += 254;
+            } else {
+                totalPayloadBytes += dataSector->next.sector - 1; 
+                break;
+            }
+        }
+        sidePosition = side->next;
+    }
+    
+    return totalPayloadBytes / recordLength;
+}
+
+int d64::getRecordSize(std::string_view filename) {
+    auto fileEntry = findFile(filename);
+    if (!fileEntry.has_value() || fileEntry.value()->file_type.type != d64FileTypes::REL) return 0;
+    return fileEntry.value()->recordLength;
+}
+
+std::optional<std::vector<uint8_t>> d64::readRecord(std::string_view filename, int recordNumber) {
+    auto fileEntry = findFile(filename);
+    if (!fileEntry.has_value() || fileEntry.value()->file_type.type != d64FileTypes::REL) return std::nullopt;
+    
+    int recordLength = fileEntry.value()->recordLength;
+    if (recordLength == 0) return std::nullopt;
+    
+    int recordCount = getRecordCount(filename);
+    if (recordNumber < 1 || recordNumber > recordCount) return std::nullopt;
+    
+    int byteOffset = (recordNumber - 1) * recordLength;
+    int sectorIndex = byteOffset / 254;
+    int byteOffsetInSector = (byteOffset % 254) + 2;
+    
+    int sideSectorIndex = sectorIndex / 120;
+    int pointerIndex = sectorIndex % 120;
+    
+    trackSector sidePosition = fileEntry.value()->side;
+    sideSectorPtr side = nullptr;
+    
+    for (int i = 0; i <= sideSectorIndex; ++i) {
+        if (sidePosition.track == 0) return std::nullopt;
+        side = getSideSectorPtr(sidePosition.track, sidePosition.sector);
+        sidePosition = side->next;
+    }
+    
+    if (!side) return std::nullopt;
+    trackSector dataSectorPos = side->chain[pointerIndex];
+    if (dataSectorPos.track == 0) return std::nullopt;
+    
+    auto dataSector = getSectorPtr(dataSectorPos.track, dataSectorPos.sector);
+    std::vector<uint8_t> recordData(recordLength);
+    
+    int bytesToRead = recordLength;
+    int currentOffset = byteOffsetInSector;
+    int recordOffset = 0;
+    
+    while (bytesToRead > 0) {
+        int bytesAvailableInSector = 256 - currentOffset;
+        
+        int bytesToCopy = std::min(bytesToRead, bytesAvailableInSector);
+        
+        std::copy_n(dataSector->data.begin() + currentOffset - 2, bytesToCopy, recordData.begin() + recordOffset);
+        
+        bytesToRead -= bytesToCopy;
+        recordOffset += bytesToCopy;
+        
+        if (bytesToRead > 0) {
+            dataSectorPos = dataSector->next;
+            if (dataSectorPos.track == 0) return std::nullopt;
+            dataSector = getSectorPtr(dataSectorPos.track, dataSectorPos.sector);
+            currentOffset = 2;
+        }
+    }
+    
+    return recordData;
+}
+
+bool d64::expandRelFile(std::string_view filename, int requiredBytes) {
+    auto fileEntry = findFile(filename);
+    if (!fileEntry.has_value() || fileEntry.value()->file_type.type != d64FileTypes::REL) return false;
+    
+    int totalPayloadBytes = 0;
+    trackSector sidePosition = fileEntry.value()->side;
+    sideSectorPtr side = nullptr;
+    trackSector lastSidePosition = {0, 0};
+    trackSector lastDataSectorPos = {0, 0};
+    int lastChainIndex = -1;
+    
+    while (sidePosition.track != 0) {
+        lastSidePosition = sidePosition;
+        side = getSideSectorPtr(sidePosition.track, sidePosition.sector);
+        for (int i = 0; i < SIDE_SECTOR_CHAIN_SZ; ++i) {
+            if (side->chain[i].track == 0) break;
+            lastDataSectorPos = side->chain[i];
+            lastChainIndex = i;
+            auto dataSector = getSectorPtr(lastDataSectorPos.track, lastDataSectorPos.sector);
+            if (dataSector->next.track != 0) {
+                totalPayloadBytes += 254;
+            } else {
+                totalPayloadBytes += dataSector->next.sector - 1; 
+                break;
+            }
+        }
+        sidePosition = side->next;
+    }
+    
+    if (totalPayloadBytes >= requiredBytes) return true;
+    
+    int bytesToAdd = requiredBytes - totalPayloadBytes;
+    
+    if (lastDataSectorPos.track != 0) {
+        auto lastDataSector = getSectorPtr(lastDataSectorPos.track, lastDataSectorPos.sector);
+        int currentSectorSize = lastDataSector->next.sector - 1;
+        if (currentSectorSize < 254) {
+            int toAdd = std::min(bytesToAdd, 254 - currentSectorSize);
+            std::fill_n(lastDataSector->data.begin() + currentSectorSize, toAdd, 0);
+            
+            bytesToAdd -= toAdd;
+            currentSectorSize += toAdd;
+            
+            if (bytesToAdd == 0) {
+                lastDataSector->next.sector = currentSectorSize + 1;
+                return true;
+            } else {
+                lastDataSector->next.sector = 255;
+            }
+        }
+    } else {
+        return false; 
+    }
+    
+    while (bytesToAdd > 0) {
+        int nextTrack = 0, nextSector = 0;
+        if (!findAndAllocateFreeSector(nextTrack, nextSector)) {
+            return false;
+        }
+        
+        auto lastDataSector = getSectorPtr(lastDataSectorPos.track, lastDataSectorPos.sector);
+        lastDataSector->next.track = nextTrack;
+        lastDataSector->next.sector = nextSector;
+        
+        lastDataSectorPos = {static_cast<uint8_t>(nextTrack), static_cast<uint8_t>(nextSector)};
+        auto newDataSector = getSectorPtr(lastDataSectorPos.track, lastDataSectorPos.sector);
+        std::fill(newDataSector->data.begin(), newDataSector->data.end(), 0); // Fill with zeros
+        
+        int toAdd = std::min(bytesToAdd, 254);
+        bytesToAdd -= toAdd;
+        
+        newDataSector->next.track = 0;
+        newDataSector->next.sector = toAdd + 1;
+        
+        lastChainIndex++;
+        if (lastChainIndex >= SIDE_SECTOR_CHAIN_SZ) {
+            int newSideTrack = 0, newSideSector = 0;
+            if (!findAndAllocateFreeSector(newSideTrack, newSideSector)) return false;
+            
+            side->next.track = newSideTrack;
+            side->next.sector = newSideSector;
+            
+            auto newSide = getSideSectorPtr(newSideTrack, newSideSector);
+            std::fill(reinterpret_cast<uint8_t*>(newSide), reinterpret_cast<uint8_t*>(newSide) + SECTOR_SIZE, 0);
+            newSide->recordsize = fileEntry.value()->recordLength;
+            newSide->block = side->block + 1;
+            
+            int sideSectorsCount = newSide->block + 1;
+            if (sideSectorsCount > SIDE_SECTOR_ENTRY_SIZE) return false;
+            
+            trackSector iterSidePos = fileEntry.value()->side;
+            while (iterSidePos.track != 0) {
+                auto iterSide = getSideSectorPtr(iterSidePos.track, iterSidePos.sector);
+                iterSide->sideSectors[newSide->block] = {static_cast<uint8_t>(newSideTrack), static_cast<uint8_t>(newSideSector)};
+                iterSidePos = iterSide->next;
+            }
+            
+            side = newSide;
+            lastChainIndex = 0;
+            
+            uint16_t currentSize = fileEntry.value()->fileSize[0] | (fileEntry.value()->fileSize[1] << 8);
+            currentSize++;
+            fileEntry.value()->fileSize[0] = currentSize & 0xFF;
+            fileEntry.value()->fileSize[1] = currentSize >> 8;
+        }
+        
+        side->chain[lastChainIndex] = lastDataSectorPos;
+        
+        uint16_t currentSize = fileEntry.value()->fileSize[0] | (fileEntry.value()->fileSize[1] << 8);
+        currentSize++;
+        fileEntry.value()->fileSize[0] = currentSize & 0xFF;
+        fileEntry.value()->fileSize[1] = currentSize >> 8;
+    }
+    
+    return true;
+}
+
+bool d64::writeRecord(std::string_view filename, int recordNumber, const std::vector<uint8_t>& recordData) {
+    auto fileEntry = findFile(filename);
+    if (!fileEntry.has_value() || fileEntry.value()->file_type.type != d64FileTypes::REL) return false;
+    
+    int recordLength = fileEntry.value()->recordLength;
+    if (recordLength == 0) return false;
+    
+    if (recordData.size() != static_cast<size_t>(recordLength)) return false;
+    if (recordNumber < 1) return false;
+    
+    int byteOffset = (recordNumber - 1) * recordLength;
+    int requiredBytes = byteOffset + recordLength;
+    
+    if (!expandRelFile(filename, requiredBytes)) return false;
+    
+    int sectorIndex = byteOffset / 254;
+    int byteOffsetInSector = (byteOffset % 254) + 2;
+    int sideSectorIndex = sectorIndex / 120;
+    int pointerIndex = sectorIndex % 120;
+    
+    trackSector sidePosition = fileEntry.value()->side;
+    sideSectorPtr side = nullptr;
+    
+    for (int i = 0; i <= sideSectorIndex; ++i) {
+        if (sidePosition.track == 0) return false;
+        side = getSideSectorPtr(sidePosition.track, sidePosition.sector);
+        sidePosition = side->next;
+    }
+    
+    if (!side) return false;
+    trackSector dataSectorPos = side->chain[pointerIndex];
+    if (dataSectorPos.track == 0) return false;
+    
+    auto dataSector = getSectorPtr(dataSectorPos.track, dataSectorPos.sector);
+    
+    int bytesToWrite = recordLength;
+    int currentOffset = byteOffsetInSector;
+    int recordOffset = 0;
+    
+    while (bytesToWrite > 0) {
+        int bytesAvailableInSector = 256 - currentOffset;
+        int bytesToCopy = std::min(bytesToWrite, bytesAvailableInSector);
+        
+        std::copy_n(recordData.begin() + recordOffset, bytesToCopy, dataSector->data.begin() + currentOffset - 2);
+        
+        bytesToWrite -= bytesToCopy;
+        recordOffset += bytesToCopy;
+        
+        if (bytesToWrite > 0) {
+            dataSectorPos = dataSector->next;
+            if (dataSectorPos.track == 0) return false; 
+            dataSector = getSectorPtr(dataSectorPos.track, dataSectorPos.sector);
+            currentOffset = 2;
+        }
+    }
+    
+    return true;
+}
+
+bool d64::appendRecord(std::string_view filename, const std::vector<uint8_t>& recordData) {
+    int count = getRecordCount(filename);
+    return writeRecord(filename, count + 1, recordData);
+}
+
+bool d64::deleteRecord(std::string_view filename, int recordNumber) {
+    int recordLength = getRecordSize(filename);
+    if (recordLength == 0) return false;
+    std::vector<uint8_t> blankRecord(recordLength, 0x00);
+    blankRecord[0] = 0xFF;
+    return writeRecord(filename, recordNumber, blankRecord);
+}
+
